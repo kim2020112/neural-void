@@ -81,3 +81,9 @@ the React tree.
 ### 5. `numHands: 2` and `delegate: 'GPU'`
 The MediaPipe recognizer is configured for both hands with GPU inference.
 On devices without WebGL, fall back to `'CPU'` delegate.
+
+### 6. HTTPS required for camera access
+`getUserMedia` is only available in [secure contexts](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia#security).
+Vite dev server is configured with a self-signed certificate (`.cert/`, gitignored)
+so the project is testable from remote devices. On the first visit, the browser
+will show a certificate warning — click "Advanced" → "Proceed" to bypass.

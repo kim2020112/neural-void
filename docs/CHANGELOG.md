@@ -25,6 +25,17 @@
 ### Removed
 - Vite template boilerplate (`App.tsx`, `App.css`, `assets/`)
 
+## 2026-05-20 — Dev Server & TLS Configuration
+
+### Added
+- 自签名 TLS 证书（`openssl` 生成），存放于 `.cert/`（已加入 `.gitignore`）
+- `vite.config.ts` 配置 HTTPS + `host: '0.0.0.0'`，可从外网访问
+- `.gitignore` 新增 `.cert` 忽略规则，避免证书文件进入版本控制
+
+### Changed
+- 开发服务器从 HTTP localhost-only → HTTPS + 绑定所有网络接口
+  - 摄像头 API (`getUserMedia`) 要求安全上下文，HTTPS 是硬性条件
+
 ### Technical Notes
 - MediaPipe model loaded from CDN (`storage.googleapis.com/mediapipe-models/...`)
 - WASM runtime loaded from jsDelivr CDN
