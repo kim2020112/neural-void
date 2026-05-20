@@ -25,3 +25,6 @@ dist-ssr
 
 # TLS certificates (self-signed, local only)
 .cert
+
+# Copied WASM files from @mediapipe/tasks-vision
+public/wasm/

@@ -3,7 +3,7 @@ import { FilesetResolver, GestureRecognizer } from '@mediapipe/tasks-vision'
 import { useAppStore } from '../store/appStore'
 
 const WASM_PATH =
-  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm'
+  'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm'
 const MODEL_PATH =
   'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task'
 
@@ -82,7 +82,8 @@ export function useGestureRecognizer() {
         rafRef.current = requestAnimationFrame(processFrame)
       } catch (err) {
         console.error('Failed to initialize GestureRecognizer:', err)
-        useAppStore.getState().setPhase('idle')
+        // Don't reset phase — the particle universe should keep running
+        // Gesture data will remain empty until the recognizer is ready
       }
     }
 
