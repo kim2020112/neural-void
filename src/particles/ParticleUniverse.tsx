@@ -140,60 +140,64 @@ export function ParticleUniverse() {
   useFrame((state) => {
     const store = useAppStore.getState()
 
-    // Time
     uniforms.uTime.value = state.clock.elapsedTime
 
-    // Mouse with smooth follow
     uniforms.uMouse.value.lerp(
       new THREE.Vector2(store.mouse.x, store.mouse.y),
       0.05
     )
 
-    // Hand position — smooth lerp toward store value
+    // Hand + fingertip position with smooth lerp
     uniforms.uHandPos.value.lerp(
-      new THREE.Vector3(
-        store.handPosition.x,
-        store.handPosition.y,
-        store.handPosition.z
-      ),
+      new THREE.Vector3(store.handPosition.x, store.handPosition.y, store.handPosition.z),
       0.15
     )
-
-    // Fingertip position
     uniforms.uFingertipPos.value.lerp(
-      new THREE.Vector3(
-        store.fingertipPosition.x,
-        store.fingertipPosition.y,
-        store.fingertipPosition.z
-      ),
+      new THREE.Vector3(store.fingertipPosition.x, store.fingertipPosition.y, store.fingertipPosition.z),
       0.15
     )
 
     // ── Gesture stability filter ──────────────────────────
     const rawGesture = store.handDetected ? store.gestureType : 'none'
 
-    // Require gesture to be stable for 6 frames (~200ms) before activating
     if (rawGesture === prevGestureRef.current && rawGesture !== 'none') {
       gestureStabilityRef.current++
+    } else if (rawGesture === 'none' && prevGestureRef.current === 'none') {
+      // Hand detected but no specific gesture — accumulate passive frames
+      if (store.handDetected) {
+        gestureStabilityRef.current++
+      } else {
+        gestureStabilityRef.current = 0
+      }
     } else {
       gestureStabilityRef.current = 0
     }
     prevGestureRef.current = rawGesture
 
-    if (gestureStabilityRef.current >= 6) {
+    // Activate specific gesture after 4 stable frames (~130ms)
+    if (gestureStabilityRef.current >= 4 && rawGesture !== 'none') {
       activeGestureRef.current = rawGesture
-    } else if (rawGesture === 'none' && gestureStabilityRef.current >= 3) {
-      // Faster release: only 3 frames to deactivate
+    } else if (rawGesture === 'none' && gestureStabilityRef.current >= 12) {
+      // Fall back to passive after ~400ms of no specific gesture
       activeGestureRef.current = 'none'
     }
 
-    // Force type from stable gesture
-    uniforms.uForceType.value = gestureToForceType(activeGestureRef.current)
+    // ── Force type & strength ─────────────────────────────
+    if (activeGestureRef.current !== 'none') {
+      // Specific gesture active → full force
+      uniforms.uForceType.value = gestureToForceType(activeGestureRef.current)
+      const targetStrength = 1.0
+      smoothForceRef.current += (targetStrength - smoothForceRef.current) * 0.06
+    } else if (store.handDetected) {
+      // Hand present, no specific gesture → subtle passive attraction
+      uniforms.uForceType.value = 1.0 // attract
+      const targetStrength = 0.25 // subtle
+      smoothForceRef.current += (targetStrength - smoothForceRef.current) * 0.03
+    } else {
+      // No hand → decay force
+      smoothForceRef.current += (0.0 - smoothForceRef.current) * 0.04
+    }
 
-    // Force strength: lerp toward target (1.0 when active, 0.0 when none)
-    const targetStrength = activeGestureRef.current !== 'none' ? 1.0 : 0.0
-    const lerpSpeed = targetStrength > smoothForceRef.current ? 0.06 : 0.04
-    smoothForceRef.current += (targetStrength - smoothForceRef.current) * lerpSpeed
     uniforms.uForceStrength.value = smoothForceRef.current
   })
 

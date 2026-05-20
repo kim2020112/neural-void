@@ -8,10 +8,8 @@ const WASM_PATH =
 const MODEL_PATH =
   'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task'
 
-// EMA smoothing factor — lower = smoother but more latency
 const SMOOTHING = 0.35
 
-// MediaPipe gesture names to our GestureType
 function mapGesture(name: string): GestureType {
   switch (name) {
     case 'Closed_Fist':
@@ -25,8 +23,6 @@ function mapGesture(name: string): GestureType {
   }
 }
 
-// Map MediaPipe normalized [0,1] to Three.js world space
-// Particles span roughly [-12, 12] in x, [-10, 10] in y, [-10, 10] in z
 function toWorldSpace(mpX: number, mpY: number, mpZ: number): Vec3 {
   return {
     x: (mpX - 0.5) * 16,
@@ -35,9 +31,7 @@ function toWorldSpace(mpX: number, mpY: number, mpZ: number): Vec3 {
   }
 }
 
-// Hand center: average of wrist + middle finger MCP
 const CENTER_INDICES = [0, 9]
-// Index fingertip
 const FINGERTIP_INDEX = 8
 
 function computeHandCenter(landmarks: { x: number; y: number; z: number }[]): Vec3 {
@@ -77,6 +71,7 @@ export function useGestureRecognizer() {
   const smoothHandRef = useRef<Vec3>({ x: 0, y: 0, z: 0 })
   const smoothFingertipRef = useRef<Vec3>({ x: 0, y: 0, z: 0 })
   const prevGestureRef = useRef<GestureType>('none')
+  const frameCountRef = useRef(0)
 
   const processFrame = useCallback(() => {
     const video = (window as unknown as Record<string, unknown>)
@@ -90,19 +85,29 @@ export function useGestureRecognizer() {
 
     const results = recognizer.recognizeForVideo(video, performance.now())
     const store = useAppStore.getState()
+    frameCountRef.current++
+
+    // Diagnostic: log every 60 frames (~2 seconds)
+    if (frameCountRef.current % 60 === 1) {
+      console.log(
+        `[NeuralVoid] frame=${frameCountRef.current} ` +
+          `gestureCount=${results.gestures.length} ` +
+          `landmarkCount=${results.landmarks.length} ` +
+          `gesture=${results.gestures[0]?.[0]?.categoryName ?? '-'} ` +
+          `score=${results.gestures[0]?.[0]?.score?.toFixed(2) ?? '-'}`
+      )
+    }
 
     if (results.gestures.length > 0 && results.landmarks.length > 0) {
-      // Process first detected hand
       const gesture = results.gestures[0][0]
       const landmarks = results.landmarks[0]
-      const detectedGesture = mapGesture(gesture?.categoryName ?? 'None')
+      const rawName = gesture?.categoryName ?? 'None'
+      const detectedGesture = mapGesture(rawName)
       const score = gesture?.score ?? 0
 
-      // Compute target positions
       const targetHand = computeHandCenter(landmarks)
       const targetFingertip = computeFingertip(landmarks)
 
-      // EMA smooth
       smoothHandRef.current = lerpVec3(smoothHandRef.current, targetHand, SMOOTHING)
       smoothFingertipRef.current = lerpVec3(
         smoothFingertipRef.current,
@@ -114,9 +119,9 @@ export function useGestureRecognizer() {
       store.setFingertipPosition(smoothFingertipRef.current)
       store.setHandDetected(true)
 
-      // Only update gesture if confidence is high enough
       if (score > 0.5) {
         if (detectedGesture !== prevGestureRef.current) {
+          console.log(`[NeuralVoid] Gesture change: ${prevGestureRef.current} → ${detectedGesture} (${rawName}, score=${score.toFixed(2)})`)
           prevGestureRef.current = detectedGesture
         }
         store.setGestureType(detectedGesture, score)
@@ -127,7 +132,6 @@ export function useGestureRecognizer() {
     } else {
       store.setHandDetected(false)
       store.setGestureType('none', 0)
-      // Don't reset hand position — particles will coast with last known position
     }
 
     rafRef.current = requestAnimationFrame(processFrame)
@@ -140,9 +144,11 @@ export function useGestureRecognizer() {
 
     const init = async () => {
       try {
+        console.log('[NeuralVoid] Loading MediaPipe WASM...')
         const vision = await FilesetResolver.forVisionTasks(WASM_PATH)
         if (cancelled) return
 
+        console.log('[NeuralVoid] WASM loaded, creating GestureRecognizer...')
         const recognizer = await GestureRecognizer.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: MODEL_PATH,
@@ -157,11 +163,13 @@ export function useGestureRecognizer() {
           return
         }
 
+        console.log('[NeuralVoid] GestureRecognizer ready, starting RAF loop')
         recognizerRef.current = recognizer
         initializedRef.current = true
+        frameCountRef.current = 0
         rafRef.current = requestAnimationFrame(processFrame)
       } catch (err) {
-        console.error('Failed to initialize GestureRecognizer:', err)
+        console.error('[NeuralVoid] GestureRecognizer init failed:', err)
       }
     }
 
