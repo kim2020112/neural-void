@@ -63,6 +63,83 @@ function lerpVec3(current: Vec3, target: Vec3, factor: number): Vec3 {
   }
 }
 
+// ─── Gesture Hysteresis State Machine ──────────────────────
+// MediaPipe alternates between specific gestures and "None" rapidly.
+// This state machine locks onto a gesture and requires sustained
+// evidence to release it, preventing output flicker.
+
+const HYSTERESIS = {
+  activate: 4,   // frames to lock a new specific gesture
+  release: 10,   // frames of "None" before releasing to none
+  maxLock: 30,   // maximum lock frames for a gesture
+}
+
+interface HysteresisState {
+  lockedGesture: GestureType
+  lockCounter: number
+  noneCounter: number
+  candidateGesture: GestureType
+  candidateCounter: number
+}
+
+function createHysteresisState(): HysteresisState {
+  return {
+    lockedGesture: 'none',
+    lockCounter: 0,
+    noneCounter: 0,
+    candidateGesture: 'none',
+    candidateCounter: 0,
+  }
+}
+
+function updateHysteresis(
+  state: HysteresisState,
+  rawGesture: GestureType,
+  rawScore: number
+): GestureType {
+  if (rawGesture !== 'none' && rawScore > 0.45) {
+    // Specific gesture detected
+    state.noneCounter = 0
+
+    if (rawGesture === state.candidateGesture) {
+      state.candidateCounter++
+    } else {
+      state.candidateGesture = rawGesture
+      state.candidateCounter = 1
+    }
+
+    // Lock onto candidate after enough evidence
+    if (state.candidateCounter >= HYSTERESIS.activate) {
+      state.lockedGesture = rawGesture
+      state.lockCounter = HYSTERESIS.maxLock
+      state.candidateCounter = 0
+    }
+  } else {
+    // "None" or low confidence
+    state.candidateCounter = Math.max(0, state.candidateCounter - 1)
+    state.noneCounter++
+
+    // Release lock after sustained "None"
+    if (state.noneCounter >= HYSTERESIS.release) {
+      state.lockedGesture = 'none'
+      state.lockCounter = 0
+    }
+  }
+
+  // Auto-release after max lock (prevents stuck gestures)
+  if (state.lockCounter > 0) {
+    state.lockCounter--
+    return state.lockedGesture === 'none' ? state.candidateGesture || 'none' : state.lockedGesture
+  }
+
+  // Lock expired — release to none
+  if (state.lockedGesture !== 'none') {
+    state.lockedGesture = 'none'
+  }
+
+  return state.lockedGesture
+}
+
 export function useGestureRecognizer() {
   const phase = useAppStore((s) => s.phase)
   const recognizerRef = useRef<GestureRecognizer | null>(null)
@@ -70,7 +147,7 @@ export function useGestureRecognizer() {
   const initializedRef = useRef(false)
   const smoothHandRef = useRef<Vec3>({ x: 0, y: 0, z: 0 })
   const smoothFingertipRef = useRef<Vec3>({ x: 0, y: 0, z: 0 })
-  const prevGestureRef = useRef<GestureType>('none')
+  const hysteresisRef = useRef<HysteresisState>(createHysteresisState())
   const frameCountRef = useRef(0)
 
   const processFrame = useCallback(() => {
@@ -87,23 +164,22 @@ export function useGestureRecognizer() {
     const store = useAppStore.getState()
     frameCountRef.current++
 
-    // Diagnostic: log every 60 frames (~2 seconds)
     if (frameCountRef.current % 60 === 1) {
+      const rawGesture = results.gestures[0]?.[0]?.categoryName ?? '-'
+      const rawScore = results.gestures[0]?.[0]?.score ?? 0
       console.log(
         `[NeuralVoid] frame=${frameCountRef.current} ` +
-          `gestureCount=${results.gestures.length} ` +
-          `landmarkCount=${results.landmarks.length} ` +
-          `gesture=${results.gestures[0]?.[0]?.categoryName ?? '-'} ` +
-          `score=${results.gestures[0]?.[0]?.score?.toFixed(2) ?? '-'}`
+          `raw=${rawGesture}(${rawScore.toFixed(2)}) ` +
+          `locked=${hysteresisRef.current.lockedGesture} ` +
+          `lockFrame=${hysteresisRef.current.lockCounter}`
       )
     }
 
     if (results.gestures.length > 0 && results.landmarks.length > 0) {
       const gesture = results.gestures[0][0]
       const landmarks = results.landmarks[0]
-      const rawName = gesture?.categoryName ?? 'None'
-      const detectedGesture = mapGesture(rawName)
-      const score = gesture?.score ?? 0
+      const rawGesture = mapGesture(gesture?.categoryName ?? 'None')
+      const rawScore = gesture?.score ?? 0
 
       const targetHand = computeHandCenter(landmarks)
       const targetFingertip = computeFingertip(landmarks)
@@ -119,17 +195,15 @@ export function useGestureRecognizer() {
       store.setFingertipPosition(smoothFingertipRef.current)
       store.setHandDetected(true)
 
-      if (score > 0.5) {
-        if (detectedGesture !== prevGestureRef.current) {
-          console.log(`[NeuralVoid] Gesture change: ${prevGestureRef.current} → ${detectedGesture} (${rawName}, score=${score.toFixed(2)})`)
-          prevGestureRef.current = detectedGesture
-        }
-        store.setGestureType(detectedGesture, score)
-      } else if (detectedGesture === 'none') {
-        prevGestureRef.current = 'none'
-        store.setGestureType('none', 0)
-      }
+      // Apply hysteresis to produce a stable gesture output
+      const stableGesture = updateHysteresis(hysteresisRef.current, rawGesture, rawScore)
+      store.setGestureType(stableGesture, rawScore)
     } else {
+      // No hand detected — decay hysteresis
+      hysteresisRef.current.noneCounter++
+      if (hysteresisRef.current.noneCounter >= HYSTERESIS.release) {
+        hysteresisRef.current = createHysteresisState()
+      }
       store.setHandDetected(false)
       store.setGestureType('none', 0)
     }
