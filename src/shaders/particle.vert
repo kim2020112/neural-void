@@ -9,7 +9,14 @@ uniform float uPixelRatio;
 uniform vec2 uMouse;
 uniform float uParticleCount;
 
-// 3D Simplex noise implementation
+// Hand force field uniforms
+uniform vec3 uHandPos;
+uniform float uForceType;    // 0=none, 1=attract, 2=repel, 3=point
+uniform float uForceStrength; // 0-1 transition
+uniform vec3 uFingertipPos;
+
+// ─── Simplex 3D ─────────────────────────────────────────────
+
 vec4 permute(vec4 x) {
   return mod(((x * 34.0) + 1.0) * x, 289.0);
 }
@@ -78,7 +85,8 @@ float snoise(vec3 v) {
   return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
 }
 
-// Curl noise: rotation of the gradient of a noise field
+// ─── Curl Noise ──────────────────────────────────────────────
+
 vec3 curlNoise(vec3 p, float t) {
   float eps = 0.5;
   float n1 = snoise(p + vec3(eps, 0.0, 0.0) + t * 0.1);
@@ -96,10 +104,47 @@ vec3 curlNoise(vec3 p, float t) {
   return vec3(x, y, z) / denom;
 }
 
+// ─── Force Fields ────────────────────────────────────────────
+
+// Soft attraction: particles collapse toward a point
+vec3 attractForce(vec3 pos, vec3 center, float strength) {
+  vec3 dir = center - pos;
+  float dist = length(dir);
+  // Inverse-square with soft core to prevent singularity
+  float magnitude = strength / (dist * dist + 0.6);
+  // Radial falloff beyond 8 units
+  magnitude *= 1.0 - smoothstep(4.0, 10.0, dist);
+  return normalize(dir) * magnitude * 6.0;
+}
+
+// Repulsion: particles pushed outward from a point
+vec3 repelForce(vec3 pos, vec3 center, float strength) {
+  vec3 dir = pos - center;
+  float dist = length(dir);
+  // Strongest at ~2-5 units, creating a shockwave ring
+  float ring = exp(-abs(dist - 3.5) * 0.7);
+  float near = 1.0 / (dist * dist + 0.8);
+  float magnitude = strength * (ring * 1.8 + near * 0.6);
+  magnitude *= 1.0 - smoothstep(8.0, 12.0, dist);
+  return normalize(dir) * magnitude * 5.5;
+}
+
+// Point: particles near fingertip follow it
+vec3 pointForce(vec3 pos, vec3 tip, float strength) {
+  vec3 dir = tip - pos;
+  float dist = length(dir);
+  // Tight attraction radius for precision
+  float magnitude = strength / (dist * dist + 0.3);
+  magnitude *= 1.0 - smoothstep(2.5, 6.0, dist);
+  return normalize(dir) * magnitude * 3.5;
+}
+
+// ─── Main ────────────────────────────────────────────────────
+
 void main() {
   vec3 pos = position;
 
-  // Multi-octave curl noise for fluid-like motion
+  // ── Curl noise flow ──────────────────────────────────────
   float scale1 = 0.6;
   float scale2 = 0.25;
   float scale3 = 0.1;
@@ -110,24 +155,53 @@ void main() {
 
   vec3 velocity = curl1 * 0.5 + curl2 * 0.3 + curl3 * 0.2;
 
-  // Subtle mouse influence: bias flow toward cursor
+  // Mouse influence — reduced when gesture is active
+  float mouseWeight = 0.15 * (1.0 - uForceStrength * 0.7);
   vec3 mouseInfluence = vec3(uMouse.x * 0.8, uMouse.y * 0.5, uMouse.x * 0.3);
-  velocity += mouseInfluence * 0.15;
+  velocity += mouseInfluence * mouseWeight;
 
-  // Displacement accumulates over time — particles drift slowly
-  vec3 displaced = pos + velocity * 2.5;
+  // ── Hand force fields ────────────────────────────────────
+  vec3 forceField = vec3(0.0);
+  float forceBoost = 1.0;
 
+  // Breathing oscillation for organic feel
+  float breathe = 1.0 + sin(uTime * 2.5) * 0.08;
+
+  if (uForceStrength > 0.01) {
+    float s = uForceStrength * breathe;
+
+    if (uForceType < 1.5) {
+      // Type 1: Attract (fist)
+      forceField += attractForce(pos, uHandPos, s);
+    } else if (uForceType < 2.5) {
+      // Type 2: Repel (open_palm)
+      forceField += repelForce(pos, uHandPos, s);
+      // Boost color for particles at shockwave ring
+      float dist = length(pos - uHandPos);
+      forceBoost = 1.0 + exp(-abs(dist - 3.5) * 0.8) * s * 1.5;
+    } else {
+      // Type 3: Point
+      forceField += pointForce(pos, uFingertipPos, s);
+      // Particles near fingertip glow brighter
+      float tipDist = length(pos - uFingertipPos);
+      forceBoost = 1.0 + exp(-tipDist * 1.2) * s * 2.0;
+    }
+  }
+
+  // Blend: curl noise dominates when strength is low, force field takes over when high
+  vec3 naturalFlow = velocity * 2.5;
+  vec3 displaced = pos + mix(naturalFlow, forceField, uForceStrength * 0.85);
+
+  // ── Render ────────────────────────────────────────────────
   vec4 mvPosition = modelViewMatrix * vec4(displaced, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
-  // Point size with depth attenuation
   float dist = length(mvPosition.xyz);
   gl_PointSize = aSize * uPixelRatio * (180.0 / -mvPosition.z);
   gl_PointSize = clamp(gl_PointSize, 0.5, 8.0);
 
-  // Pass color to fragment
-  vColor = aColor;
+  // Boost color intensity when force is active
+  vColor = aColor * forceBoost;
 
-  // Alpha fades at extreme distances for depth feel
   vAlpha = smoothstep(30.0, 5.0, dist);
 }
