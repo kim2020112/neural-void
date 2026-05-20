@@ -67,3 +67,32 @@
 - `Scene.tsx` — 集成 ParticleUniverse + MouseTracker + EffectComposer(Bloom)
   - 相机调整为 (0, 1.5, 14) 展示完整粒子宇宙
   - Bloom: luminanceThreshold=0.2, intensity=1.2, mipmapBlur
+
+## 2026-05-20 — Phase 3: Gesture Control System
+
+### Added
+- `appStore` 扩展：`GestureType`（none/fist/open_palm/point）、`Vec3` 类型、
+  `handPosition`、`fingertipPosition`、`forceStrength`、`gestureScore`、`handDetected`
+- `GestureRecognizer.ts` 重写：
+  - MediaPipe 归一化坐标 → Three.js 世界空间映射函数 `toWorldSpace()`
+  - 手部中心计算（手腕 + 中指 MCP）+ 食指尖提取（landmark 8）
+  - EMA 指数平滑（factor=0.35）消除手部抖动
+  - `mapGesture()` 将 MediaPipe 手势名映射为内部 `GestureType`
+- `particle.vert` 三种力场：
+  - **attractForce** — 向心力，逆平方 + soft core + 径向衰减
+  - **repelForce** — 排斥力，冲击波环效果（高斯峰 + 近场衰减）
+  - **pointForce** — 指尖紧密跟随，近距离粒子增亮
+  - 呼吸振荡 `breathe` + 鼠标权重随手势强度递减
+
+### Changed
+- `ParticleUniverse.tsx`：
+  - 新增 `uHandPos`、`uForceType`、`uForceStrength`、`uFingertipPos` 四个 uniform
+  - 手势稳定过滤器：需连续 6 帧相同手势才激活，3 帧释放（防误触发）
+  - 力场强度非对称 lerp（激活 0.06、释放 0.04）
+  - 手部/指尖坐标独立二次平滑（lerp factor 0.15）
+- `useGestureRecognizer` 改为单手模式（`numHands: 1`），专注交互质量
+
+### Design Notes
+- 两段式平滑：识别器 EMA(0.35) → store → useFrame lerp(0.15) → shader
+- 手势稳定 200ms 延迟避免媒体噪音导致粒子抽搐
+- 力场与 curl noise 根据 `forceStrength` 混合，低强度时自然流动保持可见

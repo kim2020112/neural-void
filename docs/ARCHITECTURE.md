@@ -82,9 +82,9 @@ Gesture data updates at 30fps. Zustand's selector-based subscriptions let
 the particle system subscribe to only the fields it needs without re-rendering
 the React tree.
 
-### 5. `numHands: 2` and `delegate: 'GPU'`
-The MediaPipe recognizer is configured for both hands with GPU inference.
-On devices without WebGL, fall back to `'CPU'` delegate.
+### 5. `numHands: 1` and `delegate: 'GPU'`
+Single-hand tracking for focused interaction quality. Two-hand adds latency
+and confusion in gesture interpretation. GPU delegate for low-latency inference.
 
 ### 6. HTTPS required for camera access
 `getUserMedia` is only available in [secure contexts](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia#security).
@@ -102,3 +102,10 @@ JS again. This is why we can hold 60fps with tens of thousands of particles.
 Particles use `THREE.AdditiveBlending` so overlapping particles accumulate
 brightness. The `EffectComposer` + `Bloom` pass then amplifies bright areas,
 creating the sci-fi neon energy look without expensive custom render targets.
+
+### 9. Two-stage gesture smoothing pipeline
+Raw MediaPipe coordinates are noisy. The pipeline smooths at two levels:
+1. **EMA in GestureRecognizer** (factor=0.35) — reduces per-frame jitter before store write
+2. **Lerp in useFrame** (factor=0.15) — prevents sudden position jumps in the shader
+Additionally, a gesture stability filter requires 6 consecutive frames (~200ms)
+of the same gesture before activating, preventing flicker between gesture states.

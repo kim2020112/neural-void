@@ -34,7 +34,7 @@ npm run preview   # → serve dist/ locally
 
 1. **Phase 1** — Scaffold: R3F scene, camera, gesture recognition skeleton ✅
 2. **Phase 2** — GPU particle system (20,000 particles, Bloom, shader-driven) ✅
-3. **Phase 3** — Gesture-to-effect mapping (fist = attract, palm = repulse, etc.)
+3. **Phase 3** — Gesture-to-effect mapping (fist = attract, palm = repulse, etc.) ✅
 4. **Phase 4** — Post-processing, hologram overlays, cinematic polish
 
 ## Browser Support
