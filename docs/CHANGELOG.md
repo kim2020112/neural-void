@@ -43,3 +43,27 @@
 - Gesture data structure: `{ gestures, landmarks, handedness }` per frame
 - Camera stream and video element stored on `window.__cameraStream` / `window.__videoElement`
   (not React state — they're non-serializable platform objects)
+
+## 2026-05-20 — Phase 2: GPU Particle System
+
+### Added
+- `@react-three/postprocessing` 3.0.4 — Bloom 泛光后处理
+- `src/shaders/particle.vert` — 顶点着色器：3D Simplex noise + Curl noise 多尺度叠加
+  - 粒子位置由 GPU 实时计算，无需 CPU 循环
+  - 鼠标偏置影响流动方向
+  - `gl_PointSize` 深度衰减，远处粒子更小
+- `src/shaders/particle.frag` — 片元着色器：三层软粒子（核心 + 光晕 + 外辉）
+  - `AdditiveBlending` 叠色产生霓虹发光效果
+  - 低 alpha 片段 discard 提升性能
+- `src/particles/ParticleUniverse.tsx` — GPU 粒子宇宙核心组件
+  - 20000 粒子，BufferGeometry + ShaderMaterial + Points
+  - 星系分布：65% 外壳 + 20% 核心 + 10% 旋臂 + 5% 外层弥散
+  - 8 色霓虹调色板（青、品红、紫、蓝、绿、金、粉、天蓝）
+  - 大小分布用幂函数：更多小粒子，少量大粒子
+- `src/core/MouseTracker.tsx` — 将 R3F `state.pointer` 写入 Zustand store
+- 鼠标状态集成到 `appStore`（`mouse: {x, y}`，归一化到 [-1, 1]）
+
+### Changed
+- `Scene.tsx` — 集成 ParticleUniverse + MouseTracker + EffectComposer(Bloom)
+  - 相机调整为 (0, 1.5, 14) 展示完整粒子宇宙
+  - Bloom: luminanceThreshold=0.2, intensity=1.2, mipmapBlur

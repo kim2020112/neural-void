@@ -5,17 +5,21 @@
 ```
 src/
   core/           # Three.js / R3F scene infrastructure
-    Scene.tsx       Canvas, camera, renderer config
+    Scene.tsx       Canvas, camera, renderer, EffectComposer + Bloom
     Background.tsx  Full-screen shader plane (deep space)
+    MouseTracker.tsx  Reads R3F pointer → Zustand store (per-frame)
   hand/           # MediaPipe gesture recognition
     useCamera.ts    Camera stream → hidden <video> element
     GestureRecognizer.ts  GestureRecognizer init + RAF loop
-  particles/      # (Phase 2) GPU particle system
+  particles/      # GPU particle system
+    ParticleUniverse.tsx  20000 particles, BufferGeometry + ShaderMaterial
   shaders/        # GLSL shader source files
     background.vert  Pass-through vertex shader
     background.frag  Multi-layer noise nebula + star field
+    particle.vert    3D Simplex + Curl noise, mouse influence, point size
+    particle.frag    Triple-layer soft particle, additive glow
   store/          # Zustand global state
-    appStore.ts     App phase, camera readiness, gesture data
+    appStore.ts     App phase, camera readiness, gesture data, mouse pos
   ui/             # React UI overlays
     App.tsx         Root orchestrator
     EnterScreen.tsx Welcome overlay with START button
@@ -87,3 +91,14 @@ On devices without WebGL, fall back to `'CPU'` delegate.
 Vite dev server is configured with a self-signed certificate (`.cert/`, gitignored)
 so the project is testable from remote devices. On the first visit, the browser
 will show a certificate warning — click "Advanced" → "Proceed" to bypass.
+
+### 7. GPU particle computation (no CPU loops)
+All 20,000 particle positions are computed on the GPU via Curl noise in the vertex
+shader. The CPU only updates uniforms (`uTime`, `uMouse`). BufferGeometry
+attributes (position, color, size) are uploaded once at init and never touched by
+JS again. This is why we can hold 60fps with tens of thousands of particles.
+
+### 8. AdditiveBlending + Bloom = neon glow
+Particles use `THREE.AdditiveBlending` so overlapping particles accumulate
+brightness. The `EffectComposer` + `Bloom` pass then amplifies bright areas,
+creating the sci-fi neon energy look without expensive custom render targets.
