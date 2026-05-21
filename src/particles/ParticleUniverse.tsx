@@ -1,213 +1,24 @@
-import { useRef, useMemo, useEffect } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
+import { computeCinematicEnvelope } from '../core/cinematic'
+import { useAppStore } from '../store/appStore'
+import type { ParticleShape } from './shapes/types'
+import { DEFAULT_PARTICLE_SHAPE } from './shapes/catalog'
+import {
+  PARTICLE_COUNT,
+  SHAPE_MODE,
+  SHAPE_TRANSITION_DURATION,
+  resolveParticleEngineFrame,
+} from './engine'
+import { SHAPE_GENERATORS } from './shapes/registry'
 import particleVert from '../shaders/particle.vert'
 import particleFrag from '../shaders/particle.frag'
-import { useAppStore } from '../store/appStore'
-import type { GestureType, ParticleShape } from '../store/appStore'
 
-const PARTICLE_COUNT = 20000
-const MORPH_SPEED = 0.022
-
-// ─── Geometry Generators ──────────────────────────────────────
-
-function easeInOutCubic(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
-}
-
-function generateGalaxyPositions(count: number): Float32Array {
-  const positions = new Float32Array(count * 3)
-
-  for (let i = 0; i < count; i++) {
-    const r = Math.random()
-
-    let radius: number
-    let ySpread: number
-
-    if (r < 0.65) {
-      radius = 8 + Math.random() * 8
-      ySpread = (Math.random() - 0.5) * 3
-    } else if (r < 0.85) {
-      radius = 2 + Math.random() * 6
-      ySpread = (Math.random() - 0.5) * 1.5
-    } else if (r < 0.95) {
-      const angle = Math.random() * Math.PI * 2
-      const armRadius = 5 + Math.random() * 10
-      const spiralAngle = angle + armRadius * 0.4
-      radius = armRadius
-      positions[i * 3] = Math.cos(spiralAngle) * armRadius
-      positions[i * 3 + 1] = (Math.random() - 0.5) * 0.8
-      positions[i * 3 + 2] = Math.sin(spiralAngle) * armRadius
-      continue
-    } else {
-      radius = 14 + Math.random() * 10
-      ySpread = (Math.random() - 0.5) * 6
-    }
-
-    const theta = Math.random() * Math.PI * 2
-    const phi = Math.acos(2 * Math.random() - 1)
-
-    positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta)
-    positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta) * 0.4 + ySpread
-    positions[i * 3 + 2] = radius * Math.cos(phi)
-  }
-
-  return positions
-}
-
-// Saturn Ring: extremely flat concentric rings in XZ with inner void + outer fade
-function generateSaturnRingPositions(count: number): Float32Array {
-  const positions = new Float32Array(count * 3)
-  const innerEdge = 2.5
-  const mainRing = 7.0
-  const outerEdge = 13.0
-
-  for (let i = 0; i < count; i++) {
-    const r = Math.random()
-
-    // Radial distribution: dense main ring, inner gap, fading outer
-    let radius: number
-    if (r < 0.15) {
-      // Inner faint ring
-      radius = innerEdge + Math.random() * 1.5
-    } else if (r < 0.75) {
-      // Main dense ring (Gaussian-like distribution around 6.5)
-      radius = mainRing + (Math.random() - 0.5) * 3.5
-    } else {
-      // Outer fading ring
-      radius = 9.0 + Math.random() * (outerEdge - 9.0)
-    }
-
-    const theta = Math.random() * Math.PI * 2
-
-    // Extremely flat: tiny Y variation
-    const y = (Math.random() - 0.5) * 0.4
-
-    // Ring gap (inner void) density modulation
-    if (radius < innerEdge + 0.6 && Math.random() < 0.6) {
-      // Push particles to either side of the inner void
-      const pushed = innerEdge + 0.8 + Math.random() * 0.5
-      positions[i * 3] = Math.cos(theta) * pushed
-      positions[i * 3 + 1] = y * 0.5
-      positions[i * 3 + 2] = Math.sin(theta) * pushed
-      continue
-    }
-
-    // Subtle radial wave pattern for ring texture
-    const wave = Math.sin(radius * 2.5 + theta * 3.0) * 0.15
-    const rFinal = radius + wave
-
-    positions[i * 3] = Math.cos(theta) * rFinal
-    positions[i * 3 + 1] = y + Math.sin(radius * 2.0) * 0.08
-    positions[i * 3 + 2] = Math.sin(theta) * rFinal
-  }
-
-  return positions
-}
-
-// DNA Double Helix: two interwoven spirals along Y axis
-function generateDNAHelixPositions(count: number): Float32Array {
-  const positions = new Float32Array(count * 3)
-  const helixRadius = 3.5
-  const helixHeight = 16.0
-  const turns = 5.0
-
-  for (let i = 0; i < count; i++) {
-    const strand = i % 2 // 0 or 1 for two strands
-    const phaseOffset = strand * Math.PI
-
-    // Uniform t along the helix, with some random jitter
-    const t = (i / count) * 2.0 - 1.0 // -1 to 1
-    const y = t * helixHeight * 0.5
-    const angle = t * Math.PI * 2.0 * turns + phaseOffset
-
-    // Add bridge connections between strands (10% of particles)
-    const isBridge = Math.random() < 0.08
-    let r: number
-    let a: number
-    let yPos: number
-
-    if (isBridge) {
-      // Bridge particle: linear interpolation between strands
-      const bridgeT = Math.random()
-      const strand0Angle = t * Math.PI * 2.0 * turns
-      const strand1Angle = strand0Angle + Math.PI
-      a = strand0Angle + (strand1Angle - strand0Angle) * bridgeT
-      r = helixRadius * (0.2 + Math.random() * 0.6)
-      yPos = y
-    } else {
-      // Regular strand particle with slight jitter
-      a = angle + (Math.random() - 0.5) * 0.4
-      r = helixRadius + (Math.random() - 0.5) * 0.8
-      yPos = y + (Math.random() - 0.5) * 0.6
-    }
-
-    positions[i * 3] = Math.cos(a) * r
-    positions[i * 3 + 1] = yPos
-    positions[i * 3 + 2] = Math.sin(a) * r
-  }
-
-  return positions
-}
-
-// Fibonacci Sphere: golden-angle surface distribution with noise perturbation
-function generateFibonacciSpherePositions(count: number): Float32Array {
-  const positions = new Float32Array(count * 3)
-  const goldenRatio = (1 + Math.sqrt(5)) / 2
-  const sphereRadius = 8.0
-
-  for (let i = 0; i < count; i++) {
-    // Fibonacci lattice on sphere
-    const theta = 2 * Math.PI * i / goldenRatio
-    const phi = Math.acos(1 - 2 * (i + 0.5) / count)
-
-    // Multiple shell layers for depth (core, mid, surface)
-    const shellRng = Math.random()
-    let radiusMult: number
-    if (shellRng < 0.3) {
-      radiusMult = 0.7 + Math.random() * 0.25 // Inner shell
-    } else if (shellRng < 0.75) {
-      radiusMult = 0.92 + Math.random() * 0.12 // Main surface
-    } else {
-      radiusMult = 1.05 + Math.random() * 0.25 // Outer halo
-    }
-
-    // Add Perlin-like perturbation to break lattice regularity
-    const noiseFreq = 3.0
-    const noiseAmp = 0.6
-    const nx = Math.sin(phi * noiseFreq) * Math.cos(theta * noiseFreq) * noiseAmp
-    const ny = Math.cos(phi * noiseFreq) * noiseAmp * 0.5
-    const nz = Math.sin(phi * noiseFreq) * Math.sin(theta * noiseFreq) * noiseAmp
-
-    const r = sphereRadius * radiusMult
-    const x = Math.sin(phi) * Math.cos(theta)
-    const y = Math.cos(phi)
-    const z = Math.sin(phi) * Math.sin(theta)
-
-    positions[i * 3] = x * r + nx
-    positions[i * 3 + 1] = y * r + ny
-    positions[i * 3 + 2] = z * r + nz
-  }
-
-  return positions
-}
-
-// ─── Shape → Generator lookup ──────────────────────────────────
-
-const shapeGenerators: Record<ParticleShape, (count: number) => Float32Array> = {
-  galaxy: generateGalaxyPositions,
-  saturn_ring: generateSaturnRingPositions,
-  dna_helix: generateDNAHelixPositions,
-  fibonacci_sphere: generateFibonacciSpherePositions,
-}
-
-// ─── Subtle per-particle variation seeds (not random neon) ─────
-
-function generateSeeds(count: number): Float32Array {
+function generateSeeds(count: number) {
   const colors = new Float32Array(count * 3)
 
   for (let i = 0; i < count; i++) {
-    // Each channel is a small random offset around 0.5 for subtle tint variation
     colors[i * 3] = 0.5 + (Math.random() - 0.5) * 0.2
     colors[i * 3 + 1] = 0.5 + (Math.random() - 0.5) * 0.2
     colors[i * 3 + 2] = 0.5 + (Math.random() - 0.5) * 0.2
@@ -216,57 +27,81 @@ function generateSeeds(count: number): Float32Array {
   return colors
 }
 
-function generateSizes(count: number): Float32Array {
+function generateSizes(count: number) {
   const sizes = new Float32Array(count)
 
   for (let i = 0; i < count; i++) {
-    const base = Math.pow(Math.random(), 2.5)
-    sizes[i] = 0.25 + base * 2.8
+    const base = Math.pow(Math.random(), 2.8)
+    sizes[i] = 0.16 + base * 1.55
   }
 
   return sizes
 }
 
-function gestureToForceType(gesture: GestureType): number {
-  switch (gesture) {
-    case 'fist':
-      return 1.0
-    case 'open_palm':
-      return 2.0
-    case 'point':
-      return 3.0
-    default:
-      return 0.0
+function generateRandoms(count: number) {
+  const randoms = new Float32Array(count)
+
+  for (let i = 0; i < count; i++) {
+    randoms[i] = Math.random()
   }
+
+  return randoms
 }
 
-// ─── Component ─────────────────────────────────────────────────
+function getShapeProfile(shape: ParticleShape) {
+  switch (shape) {
+    case 'saturn_ring':
+      return { rotX: 1.08, rotZ: -0.06, yLift: 0.02, scale: 1.34 }
+    case 'dna_helix':
+      return { rotX: 0.18, rotZ: 0.26, yLift: 0.04, scale: 0.98 }
+    case 'golden_spiral':
+      return { rotX: 0.24, rotZ: -0.1, yLift: -0.02, scale: 1.04 }
+    case 'hypercube':
+      return { rotX: 0.18, rotZ: 0.34, yLift: 0.02, scale: 0.92 }
+    case 'galaxy':
+      return { rotX: 0.46, rotZ: -0.18, yLift: -0.06, scale: 1.02 }
+    case 'singularity':
+      return { rotX: 0.68, rotZ: 0.06, yLift: -0.02, scale: 0.86 }
+    case 'knot_torus':
+      return { rotX: 0.4, rotZ: 0.28, yLift: 0, scale: 0.96 }
+    case 'quantum_sphere':
+    default:
+      return { rotX: 0.2, rotZ: 0.08, yLift: 0, scale: 1 }
+  }
+}
 
 export function ParticleUniverse() {
   const meshRef = useRef<THREE.Points>(null)
   const materialRef = useRef<THREE.ShaderMaterial>(null)
-  const { gl } = useThree()
-
+  const mouseTargetRef = useRef(new THREE.Vector2())
+  const handTargetRef = useRef(new THREE.Vector3())
+  const hand2TargetRef = useRef(new THREE.Vector3())
+  const fingertipTargetRef = useRef(new THREE.Vector3())
+  const voidCenterTargetRef = useRef(new THREE.Vector3())
+  const motionSeedRef = useRef(Math.random() * 100)
   const smoothForceRef = useRef(0)
   const smoothVoidStrengthRef = useRef(0)
-  const prevShapeRef = useRef<ParticleShape>('galaxy')
-
-  // Morph state
-  const morphRef = useRef({
-    from: null as Float32Array | null,
-    to: null as Float32Array | null,
-    progress: 0.0,
+  const storeSyncFrameRef = useRef(0)
+  const activeShapeRef = useRef<ParticleShape>(DEFAULT_PARTICLE_SHAPE)
+  const transitionRef = useRef({
     active: false,
+    progress: 0,
+    targetShape: DEFAULT_PARTICLE_SHAPE as ParticleShape,
   })
+  const diagRef = useRef(0)
+  const { gl } = useThree()
 
-  const { positions, colors, sizes } = useMemo(
-    () => ({
-      positions: generateGalaxyPositions(PARTICLE_COUNT),
+  const { positions, targetPositions, colors, sizes, randoms } = useMemo(() => {
+    const initialPositions = SHAPE_GENERATORS[DEFAULT_PARTICLE_SHAPE](PARTICLE_COUNT)
+
+    return {
+      positions: initialPositions,
+      targetPositions: new Float32Array(initialPositions),
       colors: generateSeeds(PARTICLE_COUNT),
       sizes: generateSizes(PARTICLE_COUNT),
-    }),
-    []
-  )
+      randoms: generateRandoms(PARTICLE_COUNT),
+    }
+  }, [])
 
   const uniforms = useMemo(
     () => ({
@@ -275,179 +110,272 @@ export function ParticleUniverse() {
       uMouse: { value: new THREE.Vector2(0, 0) },
       uParticleCount: { value: PARTICLE_COUNT },
       uHandPos: { value: new THREE.Vector3(0, 0, 0) },
-      uForceType: { value: 0.0 },
-      uForceStrength: { value: 0.0 },
+      uHand2Pos: { value: new THREE.Vector3(0, 0, 0) },
+      uForceType: { value: 0 },
+      uForceStrength: { value: 0 },
       uFingertipPos: { value: new THREE.Vector3(0, 0, 0) },
       uVoidCenter: { value: new THREE.Vector3(0, 0, 0) },
-      uVoidPhase: { value: 0.0 },
-      uVoidStrength: { value: 0.0 },
-      uVoidExplosionTime: { value: -1.0 },
+      uVoidPhase: { value: 0 },
+      uVoidStrength: { value: 0 },
+      uVoidExplosionTime: { value: -1 },
+      uShapeTransition: { value: 0 },
+      uShapeMode: { value: SHAPE_MODE[DEFAULT_PARTICLE_SHAPE] },
+      uCinematicPulse: { value: 0.6 },
+      uCinematicEnergy: { value: 0.2 },
+      uInteractionMode: { value: 0 },
+      uInteractionPresence: { value: 0 },
+      uDuality: { value: 0 },
+      uDepthBias: { value: 0 },
+      uFlowWeight: { value: 0.3 },
+      uMorphTension: { value: 0 },
+      uGalleryMode: { value: 1 },
     }),
-    [gl]
+    [gl],
   )
 
-  // Shape switching: morph to new geometry
   const morphTo = (targetShape: ParticleShape) => {
-    const geo = meshRef.current?.geometry
-    if (!geo) return
-    const posAttr = geo.attributes.position
-    const currentArray = posAttr.array as Float32Array
+    const geometry = meshRef.current?.geometry
+    if (!geometry) return
 
-    morphRef.current.from = new Float32Array(currentArray)
-    morphRef.current.to = shapeGenerators[targetShape](PARTICLE_COUNT)
-    morphRef.current.progress = 0
-    morphRef.current.active = true
+    const targetAttribute = geometry.attributes.aTargetPosition as THREE.BufferAttribute | undefined
+    if (!targetAttribute) return
+
+    const nextTarget = SHAPE_GENERATORS[targetShape](PARTICLE_COUNT)
+    ;(targetAttribute.array as Float32Array).set(nextTarget)
+    targetAttribute.needsUpdate = true
+
+    transitionRef.current.active = true
+    transitionRef.current.progress = 0
+    transitionRef.current.targetShape = targetShape
   }
 
-  // Watch store for shape changes
   useEffect(() => {
-    const unsub = useAppStore.subscribe(
-      (state) => state.particleShape,
-      (shape) => {
-        if (shape !== prevShapeRef.current && shape in shapeGenerators) {
-          prevShapeRef.current = shape
-          morphTo(shape)
-        }
+    const unsubscribe = useAppStore.subscribe((state) => {
+      const shape = state.particleShape
+      if (shape !== activeShapeRef.current && shape in SHAPE_GENERATORS) {
+        morphTo(shape)
       }
-    )
-    return unsub
+    })
+
+    return unsubscribe
   }, [])
 
-  const diagRef = useRef(0)
-
-  useFrame((state) => {
-    if (!materialRef.current) return
-    const activeUniforms = materialRef.current.uniforms
+  useFrame((state, delta) => {
+    if (!meshRef.current || !materialRef.current) return
 
     const store = useAppStore.getState()
+    const activeUniforms = materialRef.current.uniforms
+    const transition = transitionRef.current
+    const phaseMap: Record<string, number> = { idle: 0, forming: 1, active: 2, exploding: 3 }
 
-    // ── Morph animation ────────────────────────────────────
-    const morph = morphRef.current
-    if (morph.active && morph.from && morph.to && meshRef.current) {
-      morph.progress += MORPH_SPEED
-      const t = Math.min(easeInOutCubic(morph.progress), 1.0)
+    if (transition.active) {
+      transition.progress = Math.min(transition.progress + delta / SHAPE_TRANSITION_DURATION, 1)
+      activeUniforms.uShapeTransition.value = transition.progress
+      activeUniforms.uShapeMode.value = SHAPE_MODE[transition.targetShape]
 
-      const posAttr = meshRef.current.geometry.attributes.position
-      const arr = posAttr.array as Float32Array
-      const from = morph.from
-      const to = morph.to
-      for (let i = 0; i < arr.length; i++) {
-        arr[i] = from[i] + (to[i] - from[i]) * t
+      if (transition.progress >= 1) {
+        const geometry = meshRef.current.geometry
+        const positionAttribute = geometry.attributes.position as THREE.BufferAttribute
+        const targetAttribute = geometry.attributes.aTargetPosition as THREE.BufferAttribute
+        ;(positionAttribute.array as Float32Array).set(targetAttribute.array as Float32Array)
+        positionAttribute.needsUpdate = true
+
+        activeShapeRef.current = transition.targetShape
+        transition.active = false
+        transition.progress = 0
+        activeUniforms.uShapeTransition.value = 0
+        activeUniforms.uShapeMode.value = SHAPE_MODE[activeShapeRef.current]
       }
-      posAttr.needsUpdate = true
-
-      if (morph.progress >= 1.0) {
-        morph.active = false
-        morph.from = null
-        morph.to = null
-      }
+    } else {
+      activeUniforms.uShapeTransition.value = 0
+      activeUniforms.uShapeMode.value = SHAPE_MODE[activeShapeRef.current]
     }
 
-    // ── Uniform updates ────────────────────────────────────
     activeUniforms.uTime.value = state.clock.elapsedTime
 
-    activeUniforms.uMouse.value.lerp(
-      new THREE.Vector2(store.mouse.x, store.mouse.y),
-      0.15
+    mouseTargetRef.current.set(store.mouse.x, store.mouse.y)
+    activeUniforms.uMouse.value.lerp(mouseTargetRef.current, 0.14)
+
+    handTargetRef.current.set(store.handPosition.x, store.handPosition.y, store.handPosition.z)
+    activeUniforms.uHandPos.value.lerp(handTargetRef.current, 0.28)
+
+    hand2TargetRef.current.set(store.hand2Position.x, store.hand2Position.y, store.hand2Position.z)
+    activeUniforms.uHand2Pos.value.lerp(hand2TargetRef.current, 0.24)
+
+    fingertipTargetRef.current.set(
+      store.fingertipPosition.x,
+      store.fingertipPosition.y,
+      store.fingertipPosition.z,
     )
+    activeUniforms.uFingertipPos.value.lerp(fingertipTargetRef.current, 0.34)
 
-    // Faster hand tracking — "咬合" snap response
-    activeUniforms.uHandPos.value.lerp(
-      new THREE.Vector3(store.handPosition.x, store.handPosition.y, store.handPosition.z),
-      0.32
-    )
-    activeUniforms.uFingertipPos.value.lerp(
-      new THREE.Vector3(store.fingertipPosition.x, store.fingertipPosition.y, store.fingertipPosition.z),
-      0.40
-    )
+    voidCenterTargetRef.current.set(store.voidCenter.x, store.voidCenter.y, store.voidCenter.z)
+    activeUniforms.uVoidCenter.value.lerp(voidCenterTargetRef.current, 0.22)
 
-    // ── Void Core lifecycle ────────────────────────────────
-    const vcp = store.voidCorePhase
-    const phaseMap: Record<string, number> = { idle: 0, forming: 1, active: 2, exploding: 3 }
-    activeUniforms.uVoidPhase.value = phaseMap[vcp] ?? 0
-
-    activeUniforms.uVoidCenter.value.lerp(
-      new THREE.Vector3(store.voidCenter.x, store.voidCenter.y, store.voidCenter.z),
-      0.30
-    )
-
-    if (vcp === 'forming' || vcp === 'active') {
-      smoothVoidStrengthRef.current += (1.0 - smoothVoidStrengthRef.current) * 0.06
-    } else if (vcp === 'exploding') {
-      smoothVoidStrengthRef.current += (0.0 - smoothVoidStrengthRef.current) * 0.015
-    } else {
-      smoothVoidStrengthRef.current += (0.0 - smoothVoidStrengthRef.current) * 0.04
-    }
-    activeUniforms.uVoidStrength.value = smoothVoidStrengthRef.current
-
-    if (vcp === 'exploding' && activeUniforms.uVoidExplosionTime.value < 0.0) {
+    if (store.voidCorePhase === 'exploding' && activeUniforms.uVoidExplosionTime.value < 0) {
       activeUniforms.uVoidExplosionTime.value = state.clock.elapsedTime
     }
-    if (vcp === 'idle') {
-      activeUniforms.uVoidExplosionTime.value = -1.0
+    if (store.voidCorePhase === 'idle') {
+      activeUniforms.uVoidExplosionTime.value = -1
     }
 
     const explosionAge =
-      vcp === 'exploding' && activeUniforms.uVoidExplosionTime.value > 0
+      store.voidCorePhase === 'exploding' && activeUniforms.uVoidExplosionTime.value > 0
         ? state.clock.elapsedTime - activeUniforms.uVoidExplosionTime.value
         : 0
-    const effectiveVcp = explosionAge > 5.0 ? 'idle' : vcp
+    const effectivePhase = explosionAge > 5 ? 'idle' : store.voidCorePhase
 
-    // ── Gesture force dispatch ─────────────────────────────
-    if (effectiveVcp !== 'idle') {
-      activeUniforms.uForceType.value = 4.0
-      smoothForceRef.current += (0.0 - smoothForceRef.current) * 0.05
-    } else {
-      const gestureType = store.handDetected ? store.gestureType : 'none'
-      activeUniforms.uForceType.value = gestureToForceType(gestureType)
+    const engineFrame = resolveParticleEngineFrame({
+      gestureType: store.gestureType,
+      gestureScore: store.gestureScore,
+      handDetected: store.handDetected,
+      hand2Detected: store.hand2Detected,
+      voidCorePhase: effectivePhase,
+      interactionState: store.interactionState,
+      transition: transition.active ? transition.progress : 0,
+    })
 
-      if (gestureType !== 'none') {
-        smoothForceRef.current += (1.0 - smoothForceRef.current) * 0.08
-      } else if (store.handDetected) {
-        smoothForceRef.current += (0.25 - smoothForceRef.current) * 0.04
-      } else {
-        smoothForceRef.current += (0.0 - smoothForceRef.current) * 0.05
-      }
+    const targetVoidStrength = effectivePhase === 'idle' ? 0 : store.voidCoreStrength
+    const voidEaseIn =
+      effectivePhase === 'forming' ? 0.05 : effectivePhase === 'active' ? 0.08 : effectivePhase === 'exploding' ? 0.18 : 0.03
+    const voidEaseOut = effectivePhase === 'exploding' ? 0.045 : 0.02
+
+    smoothVoidStrengthRef.current +=
+      (targetVoidStrength - smoothVoidStrengthRef.current) *
+      (targetVoidStrength > smoothVoidStrengthRef.current ? voidEaseIn : voidEaseOut)
+    smoothForceRef.current += (engineFrame.forceStrength - smoothForceRef.current) * 0.08
+
+    activeUniforms.uVoidPhase.value = phaseMap[effectivePhase] ?? 0
+    activeUniforms.uVoidStrength.value = smoothVoidStrengthRef.current
+    activeUniforms.uForceType.value = engineFrame.forceType
+    activeUniforms.uForceStrength.value = smoothForceRef.current
+    activeUniforms.uInteractionMode.value = engineFrame.interactionMode
+    activeUniforms.uInteractionPresence.value = engineFrame.interactionPresence
+    activeUniforms.uDuality.value = engineFrame.duality
+    activeUniforms.uDepthBias.value = engineFrame.depthBias
+    activeUniforms.uFlowWeight.value = engineFrame.flowWeight
+    activeUniforms.uMorphTension.value = engineFrame.morphTension
+    activeUniforms.uGalleryMode.value = store.galleryMode ? 1 : 0
+
+    const envelope = computeCinematicEnvelope({
+      time: state.clock.elapsedTime,
+      force: Math.max(smoothForceRef.current, store.forceStrength),
+      voidStrength: smoothVoidStrengthRef.current,
+      transition: transition.active ? transition.progress : 0,
+      handDetected: store.handDetected || store.hand2Detected,
+      phase: effectivePhase as 'idle' | 'forming' | 'active' | 'exploding',
+    })
+
+    const formingCompression =
+      effectivePhase === 'forming' ? Math.pow(smoothVoidStrengthRef.current, 1.45) : 0
+    const activeCore = effectivePhase === 'active' ? Math.pow(smoothVoidStrengthRef.current, 0.82) : 0
+    const explosionPulse =
+      effectivePhase === 'exploding' ? Math.pow(smoothVoidStrengthRef.current, 0.62) : 0
+    const settleTail = effectivePhase === 'exploding' ? (1 - explosionPulse) * envelope.settle : envelope.settle
+
+    activeUniforms.uCinematicPulse.value =
+      envelope.pulse +
+      store.interactionState.orbit * 0.08 +
+      formingCompression * 0.06 +
+      explosionPulse * 0.16
+    activeUniforms.uCinematicEnergy.value =
+      envelope.energy +
+      engineFrame.morphTension * 0.18 +
+      store.interactionState.depth * 0.08 +
+      envelope.shock * 0.12 +
+      activeCore * 0.08 +
+      explosionPulse * 0.12
+
+    const currentProfile = getShapeProfile(activeShapeRef.current)
+    const targetProfile = getShapeProfile(transition.active ? transition.targetShape : activeShapeRef.current)
+    const profileBlend = transition.active ? transition.progress : 0
+    const galleryMix = store.galleryMode ? 1 : 0
+    const galleryMotionScale = THREE.MathUtils.lerp(1.32, 0.24, galleryMix)
+    const galleryDriftScale = THREE.MathUtils.lerp(1.24, 0.3, galleryMix)
+    const shapeProfile = {
+      rotX: THREE.MathUtils.lerp(currentProfile.rotX, targetProfile.rotX, profileBlend),
+      rotZ: THREE.MathUtils.lerp(currentProfile.rotZ, targetProfile.rotZ, profileBlend),
+      yLift: THREE.MathUtils.lerp(currentProfile.yLift, targetProfile.yLift, profileBlend),
+      scale: THREE.MathUtils.lerp(currentProfile.scale, targetProfile.scale, profileBlend),
     }
 
-    activeUniforms.uForceStrength.value = smoothForceRef.current
+    const universeLift = Math.sin(state.clock.elapsedTime * 0.18 + motionSeedRef.current) * 0.05 * galleryMotionScale
+    meshRef.current.rotation.y =
+      state.clock.elapsedTime *
+        (0.0046 +
+          store.interactionState.orbit * 0.006 * galleryDriftScale +
+          explosionPulse * 0.005 +
+          activeCore * 0.002 -
+          formingCompression * 0.0016) +
+      envelope.drift * 0.026 * galleryDriftScale
+    meshRef.current.rotation.x =
+      shapeProfile.rotX +
+      Math.sin(state.clock.elapsedTime * 0.05 + motionSeedRef.current) * 0.012 * galleryMotionScale +
+      store.interactionState.depth * 0.015 * galleryDriftScale +
+      explosionPulse * 0.022 -
+      formingCompression * 0.012
+    meshRef.current.rotation.z =
+      shapeProfile.rotZ +
+      Math.sin(state.clock.elapsedTime * 0.03 + motionSeedRef.current * 0.7) * 0.006 * galleryMotionScale +
+      store.interactionState.orbit * 0.008 * galleryDriftScale
+    meshRef.current.position.y =
+      shapeProfile.yLift +
+      universeLift +
+      envelope.breath * 0.02 * galleryMotionScale +
+      activeCore * 0.018 +
+      settleTail * 0.008 -
+      formingCompression * 0.06 -
+      explosionPulse * 0.04 +
+      envelope.shock * 0.008 * galleryDriftScale +
+      store.interactionState.depth * 0.018 * galleryDriftScale
+    meshRef.current.scale.setScalar(
+      Math.max(
+        0.84,
+        shapeProfile.scale *
+          (1 +
+            envelope.breath * 0.008 * galleryMotionScale +
+            envelope.energy * 0.015 * galleryMotionScale +
+            engineFrame.morphTension * 0.018 * galleryMotionScale +
+            envelope.shock * 0.02 * galleryDriftScale +
+            activeCore * 0.018 +
+            explosionPulse * 0.08 +
+            settleTail * 0.012 -
+            formingCompression * 0.04),
+      ),
+    )
 
-    // ── Diagnostic ─────────────────────────────────────────
-    diagRef.current++
-    if (diagRef.current % 60 === 1) {
+    storeSyncFrameRef.current = (storeSyncFrameRef.current + 1) % 2
+    if (storeSyncFrameRef.current === 0) {
+      if (Math.abs(store.forceStrength - smoothForceRef.current) > 0.015) {
+        store.setForceStrength(smoothForceRef.current)
+      }
+
+      store.setCinematicState({
+        ...envelope,
+        transition: transition.active ? transition.progress : 0,
+      })
+    }
+
+    diagRef.current += 1
+    if (diagRef.current % 90 === 1) {
       console.log(
         `[ParticleUniverse] frame=${diagRef.current} ` +
-          `vcp=${vcp} effectiveVcp=${effectiveVcp} ` +
-          `gesture=${store.gestureType} handDet=${store.handDetected} ` +
-          `shape=${store.particleShape} ` +
-          `forceType=${activeUniforms.uForceType.value.toFixed(1)} ` +
-          `forceStr=${activeUniforms.uForceStrength.value.toFixed(3)} ` +
-          `voidStr=${activeUniforms.uVoidStrength.value.toFixed(3)}`
+          `phase=${store.voidCorePhase} effective=${effectivePhase} ` +
+          `mode=${store.interactionState.mode} shape=${activeShapeRef.current} ` +
+          `target=${transition.targetShape} trans=${activeUniforms.uShapeTransition.value.toFixed(2)} ` +
+          `force=${activeUniforms.uForceStrength.value.toFixed(3)} void=${activeUniforms.uVoidStrength.value.toFixed(3)}`,
       )
     }
   })
 
   return (
-    <points ref={meshRef}>
+    <points ref={meshRef} renderOrder={1}>
       <bufferGeometry>
-        <bufferAttribute
-          attach="attributes-position"
-          count={PARTICLE_COUNT}
-          array={positions}
-          itemSize={3}
-        />
-        <bufferAttribute
-          attach="attributes-aColor"
-          count={PARTICLE_COUNT}
-          array={colors}
-          itemSize={3}
-        />
-        <bufferAttribute
-          attach="attributes-aSize"
-          count={PARTICLE_COUNT}
-          array={sizes}
-          itemSize={1}
-        />
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+        <bufferAttribute attach="attributes-aTargetPosition" args={[targetPositions, 3]} />
+        <bufferAttribute attach="attributes-aColor" args={[colors, 3]} />
+        <bufferAttribute attach="attributes-aSize" args={[sizes, 1]} />
+        <bufferAttribute attach="attributes-aRandom" args={[randoms, 1]} />
       </bufferGeometry>
       <shaderMaterial
         ref={materialRef}

@@ -5,28 +5,37 @@
 ```
 src/
   core/           # Three.js / R3F scene infrastructure
-    Scene.tsx       Canvas, camera, renderer, EffectComposer + Bloom
+    Scene.tsx       Canvas, camera, renderer, fog, scene assembly
     Background.tsx  Full-screen shader plane (deep space)
     MouseTracker.tsx  Reads R3F pointer → Zustand store (per-frame)
-    HandCursor.tsx  Cyan sphere tracking hand position (debug)
-    ReferenceRing.tsx  Spatial reference torus at origin
+    HandCursor.tsx  Runtime hand cursor visualization
+    ReferenceRing.tsx  Spatial reference ring (suppressed for saturn scene)
+    CinematicRig.tsx  Camera motion system with gallery / hero framing
+    SpaceAtmosphere.tsx  Atmosphere overlay layer around the particle system
+    PostProcessingRig.tsx  Bloom / contrast / vignette runtime grading
+    cinematic.ts    Cinematic envelope helpers
   hand/           # MediaPipe gesture recognition
     useCamera.ts    Camera stream → hidden <video> element
     GestureRecognizer.ts  MediaPipe init + RAF loop + hysteresis + void core triggers
   particles/      # GPU particle system
     ParticleUniverse.tsx  20000 particles, BufferGeometry + ShaderMaterial
+    engine.ts       Interaction/void-core → shader uniform frame resolver
+    shapes/
+      catalog.ts      Shape registry and default scene
+      registry.ts     Mathematical generators for all particle silhouettes
+      types.ts        Particle shape types
   shaders/        # GLSL shader source files
     background.vert  Pass-through vertex shader
-    background.frag  Multi-layer noise nebula + star field
-    particle.vert    3D Simplex + Curl noise, dual-tone ice-blue→gold palette, Gaussian force curves, exp point sizing, void core physics
-    particle.frag    Five-layer isotropic HDR glow (spike/core/glow/halo/feather), force-based warm shift
+    background.frag  Multi-layer noise nebula + star field with scene-specific focus
+    atmosphere.vert/.frag  Atmosphere overlay shaders
+    particle.vert    Shape life, force fields, transitions, scene-specific palette logic
+    particle.frag    HDR point glow layering for particle readability
   store/          # Zustand global state
-    appStore.ts     App phase, camera, gesture data, hand tracking, void core state, particle shape
+    appStore.ts     App phase, camera, gallery mode, gesture data, hand tracking, void core state, particle shape
   ui/             # React UI overlays
     App.tsx         Root orchestrator
     EnterScreen.tsx Welcome overlay with START button
-    DebugOverlay.tsx  Real-time diagnostic panel (FPS, hands, gestures, void core)
-  utils/          # Shared utilities
+    DebugOverlay.tsx  Runtime HUD: mode switch, camera toggle, scene library, status panels
   glsl.d.ts       # TS declarations for .glsl/.vert/.frag imports
   index.css       # Global reset + font imports
   main.tsx        # React entry point
@@ -72,20 +81,26 @@ idle ──[START click]──→ loading ──[getUserMedia OK]──→ activ
 - **loading** — awaiting `getUserMedia` promise
 - **active** — camera streaming, gesture recognition running, scene visible
 
-### VoidCorePhase (`idle | forming | active | exploding`)
+### Runtime Visual Modes
 
-The void core is a sub-state-machine that operates when `phase === 'active'`:
+- **Hero / 交互态** — 默认运行态。镜头采用 CinematicRig 的主视角轨道，保留呼吸、聚能、回落和手势作用后的结构响应。
+- **Gallery / 展示态** — 通过 `galleryMode` 切换。镜头锁定到每个结构的档案机位，压低流体扰动、全局漂移和后处理，优先展示轮廓样本。
+- **HUD runtime controls** — 右上角 HUD 挂载 `展示 / 交互` 切换与摄像头开关。关闭摄像头后，手势链路静默，场景持续运行并显示离线提示层。
 
-```
-IDLE ──(both fists or single fist 2s)──→ FORMING ──(0.5s)──→ ACTIVE
-  ↑                                                             │
-  └──────────────────────(3.5s explosion decay)←─── EXPLODING ←─┘
-                                                          ↑ (fist→open_palm)
-```
+### Saturn Ring Convergence
 
-- **forming** — Gravitational lensing only: particles warp tangentially around the void center
-- **active** — Full vortex + accretion disk + color zones: particles spiral into center
-- **exploding** — Radial blast + expanding shockwave ring, auto-decays to idle after ~3.5s
+`saturn_ring` 不再复用通用结构策略，而是单独收敛为三层：
+
+1. **中心球核** — 紧实的冷色球状核心。
+2. **暖黄色主环** — 围绕球核的高密明黄色环带，作为主视觉亮部。
+3. **外圈递减尾部** — 半径继续外扩，但粒子密度逐步下降，避免形成平均撒开的盘雾。
+
+为了保证这个场景可读：
+- 镜头使用更低、更近、带倾角的土星环主视角。
+- 参考环在土星环场景中抑制显示，避免抢占主体。
+- 背景星点和雾层在土星环场景中降权，给主环留出亮部空间。
+- 手势控制链路保持可用，但静态漂散被单独压低，避免无交互时退化为一团白雾。
+
 
 ## Key Design Decisions
 
@@ -168,7 +183,7 @@ This creates dramatic "instant capture" and "violent repel" behavior at critical
 ### 13. Multi-geometry morphing system
 Four mathematical particle shapes, switchable via `store.setParticleShape()`:
 - `galaxy` — Spiral galaxy with core/halo/arms
-- `saturn_ring` — Flat concentric rings with inner void and radial wave texture
+- `saturn_ring` — Compact sphere core + bright yellow ring belt + density-falloff outer tail
 - `dna_helix` — Dual-strand helix with bridge particles along Y axis
 - `fibonacci_sphere` — Golden-angle sphere lattice with noise perturbation and multi-shell depth
 Shape transitions use JS-side buffer lerping with `easeInOutCubic` easing (~1.5s).

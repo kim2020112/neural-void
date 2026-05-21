@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — Runtime HUD / Gallery / Saturn Ring Convergence
+
+### Added
+- 右上角 HUD 接入 `展示 / 交互` 模式切换，与摄像头开关并列常驻
+- `galleryMode` 正式作为独立运行态接入文档与场景控制链路
+- 背景增加按场景聚焦的 `uSaturnFocus`，土星环场景下自动压低背景星点与雾层干扰
+
+### Changed
+- 默认运行态从 Gallery 展示态切回 Hero / 交互态，首屏优先展示主场景而不是样本陈列
+- `CinematicRig` 收敛为双路径：
+  - Gallery：固定机位、弱运动、结构展示优先
+  - Hero：动态主视角、呼吸/聚能/回落优先
+- `DebugOverlay` 收敛为低占位中文 HUD：状态面板、场景库、摄像头按钮、模式按钮、离线提示层
+- `PostProcessingRig` 改为按结构分档调节 bloom / brightness / vignette，避免所有场景共用一套泛光阈值
+- `ParticleUniverse` 将 `galleryMode`、interaction frame、cinematic envelope 解耦，避免继续把所有表现都堆回单个粒子组件
+
+### Saturn Ring Scene
+- `saturn_ring` 结构从通用散盘重建为：
+  - 中心球核
+  - 明黄色主环
+  - 外圈递减稀疏尾部
+- 土星环静态流动被单独压低，避免无交互时散成白色云团
+- 土星环获得专属镜头构图、专属亮部阈值和专属背景降噪
+- 参考环在土星环场景下抑制显示，避免和主体竞争注意力
+- 手势控制链路保持有效，但默认观感优先保证“球核 + 黄环”结构可读性
+
 ## 2026-05-20 — Phase 1: Scaffold & Foundation
 
 ### Added

@@ -1,48 +1,30 @@
 varying vec3 vColor;
 varying float vAlpha;
 varying float vForceIntensity;
+varying float vPulseGlow;
 
 void main() {
   float d = length(gl_PointCoord - 0.5) * 2.0;
 
-  // ── Multi-layer isotropic glow ──────────────────────────
-  // Spike: ultra-tight piercing hot core
-  float spike = exp(-d * 10.0) * 1.6;
-  // Core: tight bright center
-  float core  = exp(-d * 4.5) * 0.7;
-  // Glow: medium soft halo
-  float glow  = exp(-d * 1.8) * 0.4;
-  // Halo: wide feathered aura
-  float halo  = exp(-d * 0.7) * 0.15;
-  // Feather: ultra-soft outer edge
-  float feather = exp(-d * 0.22) * 0.05;
+  float spike = exp(-d * 16.0) * (1.18 + vPulseGlow * 0.14);
+  float core = exp(-d * 7.2) * 0.84;
+  float glow = exp(-d * 2.7) * (0.2 + vPulseGlow * 0.08);
+  float halo = exp(-d * 1.25) * (0.06 + vPulseGlow * 0.04);
 
-  float alpha = spike + core + glow + halo + feather;
+  float alpha = spike + core + glow + halo;
+  if (alpha < 0.02) discard;
 
-  // Discard near-transparent fragments
-  if (alpha < 0.015) discard;
+  vec3 color = vColor * (spike * 0.9 + core * 0.78 + glow * 0.22 + halo * 0.08);
+  color += vColor * glow * (0.14 + vPulseGlow * 0.08);
 
-  // Composite color with layer weights
-  vec3 color = vColor * (spike * 1.0 + core * 0.8 + glow * 0.5 + halo * 0.25 + feather * 0.1);
+  vec3 warmColor = mix(vColor, vColor * vec3(1.05, 0.93, 0.82), vForceIntensity);
+  float spikeWhiteness = spike * (vForceIntensity * 0.18 + vPulseGlow * 0.05);
+  color = mix(color, warmColor, vForceIntensity * 0.28 + vPulseGlow * 0.02);
 
-  // Extra bloom contribution on the glow layer
-  color += vColor * glow * 0.35;
-
-  // ── Force-induced warm shift ─────────────────────────────
-  // At rest: preserve the ice-blue → gold palette
-  // Under force: shift toward blazing warm white
-  vec3 warmColor = mix(vColor, vColor * vec3(1.15, 0.75, 0.55), vForceIntensity);
-  // Hot core spike bleaches to pure white under force
-  float spikeWhiteness = spike * vForceIntensity * 0.6;
-  color = mix(color, warmColor, vForceIntensity * 0.7);
-
-  // ── HDR output: push active particles beyond 1.0 ─────────
-  // Bloom post-processing catches values >1.0 for cinematic glow
-  float hdrBoost = 1.0 + vForceIntensity * 4.5;
+  float hdrBoost = 0.62 + vForceIntensity * 0.94 + vPulseGlow * 0.32;
   color *= hdrBoost;
+  color += vec3(1.0, 0.99, 0.94) * spikeWhiteness * hdrBoost * 0.32;
 
-  // Add white-hot spike at center of force-active particles
-  color += vec3(1.0, 1.0, 0.95) * spikeWhiteness * hdrBoost;
-
-  gl_FragColor = vec4(color, alpha * vAlpha);
+  float finalAlpha = alpha * vAlpha * (0.72 + vPulseGlow * 0.1);
+  gl_FragColor = vec4(color, finalAlpha);
 }

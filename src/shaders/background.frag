@@ -1,6 +1,9 @@
 varying vec2 vUv;
 uniform float uTime;
 uniform vec2 uResolution;
+uniform float uPulse;
+uniform float uEnergy;
+uniform float uSaturnFocus;
 
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -20,39 +23,44 @@ float noise(vec2 p) {
 void main() {
   vec2 uv = vUv;
   vec2 center = uv - 0.5;
+  center.x *= uResolution.x / max(uResolution.y, 0.001);
   float dist = length(center);
 
-  // Deep space gradient: dark navy at center, near-black at edges
-  vec3 colCenter = vec3(0.02, 0.01, 0.08);
-  vec3 colEdge = vec3(0.0, 0.0, 0.015);
-  vec3 baseColor = mix(colCenter, colEdge, dist * 1.8);
+  float saturnFocus = uSaturnFocus;
+  vec3 colCenter = mix(vec3(0.028, 0.034, 0.11), vec3(0.012, 0.014, 0.04), saturnFocus);
+  vec3 colEdge = mix(vec3(0.002, 0.004, 0.018), vec3(0.001, 0.002, 0.008), saturnFocus);
+  vec3 baseColor = mix(colCenter, colEdge, smoothstep(0.0, 0.85, dist));
 
-  // Subtle energy field — large slow-moving noise layers
-  float n1 = noise(uv * 6.0 + uTime * 0.02);
-  float n2 = noise(uv * 12.0 - uTime * 0.015 + 2.8);
-  float n3 = noise(uv * 3.0 + uTime * 0.008 + 5.1);
+  float n1 = noise(uv * 4.5 + vec2(uTime * 0.015, -uTime * 0.01));
+  float n2 = noise(uv * 10.0 - vec2(uTime * 0.03, uTime * 0.018) + 2.8);
+  float n3 = noise(uv * 2.2 + vec2(-uTime * 0.008, uTime * 0.012) + 5.1);
+  float n4 = noise((uv + center * 0.25) * 16.0 + uTime * 0.02 + 7.2);
 
-  // Combine noise into a subtle nebula effect
-  float nebula = n1 * 0.4 + n2 * 0.3 + n3 * 0.3;
+  float nebula = n1 * 0.35 + n2 * 0.25 + n3 * 0.4;
+  float wisps = smoothstep(0.55, 0.82, n1) * 0.55 + smoothstep(0.6, 0.9, n2) * 0.45;
+  float veil = smoothstep(0.4, 0.88, n4) * 0.18;
 
-  // Add faint cyan/magenta energy wisps
-  vec3 cyanWisp = vec3(0.0, 0.6, 0.8) * smoothstep(0.55, 0.7, n1) * 0.06;
-  vec3 magentaWisp = vec3(0.5, 0.0, 0.6) * smoothstep(0.55, 0.7, n2) * 0.05;
+  vec3 cyanWisp = vec3(0.05, 0.52, 0.82) * wisps * (0.15 + uEnergy * 0.18) * mix(1.0, 0.38, saturnFocus);
+  vec3 violetWisp = vec3(0.26, 0.06, 0.42) * smoothstep(0.58, 0.82, n3) * (0.15 + uEnergy * 0.1) * mix(1.0, 0.34, saturnFocus);
+  vec3 goldDust = vec3(0.34, 0.22, 0.06) * veil * (0.12 + uPulse * 0.08) * mix(1.0, 0.3, saturnFocus);
 
-  // Star field — sparse, twinkling
   float star = 0.0;
-  float starField = hash(floor(uv * 300.0));
-  if (starField > 0.998) {
-    float twinkle = sin(uTime * 2.5 + hash(floor(uv * 300.0)) * 100.0) * 0.5 + 0.5;
-    star = smoothstep(0.998, 1.0, starField) * twinkle * 0.9;
+  float starField = hash(floor(uv * 320.0));
+  if (starField > mix(0.9975, 0.9991, saturnFocus)) {
+    float twinkle = sin(uTime * 2.3 + hash(floor(uv * 320.0)) * 130.0) * 0.5 + 0.5;
+    star = smoothstep(0.9975, 1.0, starField) * twinkle;
   }
 
-  // Vignette
-  float vignette = 1.0 - dist * 1.6;
+  float pulseCore = exp(-dist * 4.1) * (0.12 + uPulse * 0.16 + uEnergy * 0.18);
+  float auraRing = exp(-abs(dist - 0.22) * 5.2) * (0.025 + uEnergy * 0.045 + uPulse * 0.03);
+  vec3 coreGlow = mix(vec3(0.03, 0.1, 0.2), vec3(0.18, 0.26, 0.46), uEnergy) * pulseCore;
+  vec3 auraGlow = mix(vec3(0.04, 0.16, 0.28), vec3(0.22, 0.08, 0.34), nebula) * auraRing;
+
+  float vignette = 1.0 - dist * 1.15;
   vignette = smoothstep(0.0, 1.0, vignette);
 
-  vec3 color = baseColor + cyanWisp + magentaWisp + nebula * 0.015;
-  color += star * 0.7;
+  vec3 color = baseColor + cyanWisp + violetWisp + goldDust + nebula * mix(0.045, 0.016, saturnFocus) + coreGlow + auraGlow * mix(1.0, 0.42, saturnFocus);
+  color += star * vec3(0.78, 0.84, 0.98) * mix(1.0, 0.42, saturnFocus);
   color *= vignette;
 
   gl_FragColor = vec4(color, 1.0);
