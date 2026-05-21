@@ -3,6 +3,7 @@ attribute vec3 aColor;
 
 varying vec3 vColor;
 varying float vAlpha;
+varying float vForceIntensity;
 
 uniform float uTime;
 uniform float uPixelRatio;
@@ -110,38 +111,96 @@ vec3 curlNoise(vec3 p, float t) {
   return vec3(x, y, z) / denom;
 }
 
-// ─── Force Fields ────────────────────────────────────────────
+// ─── Dual-Tone Palette: Ice Blue → Liquid Gold ──────────────
 
-// Soft attraction: particles collapse toward a point
+vec3 distancePalette(float dist, float forceIntensity, vec3 seed) {
+  // Normalize distance to 0-1 range for this galaxy scale
+  float t = clamp(dist / 16.0, 0.0, 1.0);
+
+  // Aurora Ice Blue (core)
+  vec3 iceBlue   = vec3(0.0, 0.90, 1.0);
+  vec3 auroraCyan = vec3(0.0, 0.78, 0.92);
+
+  // Liquid Gold (mid)
+  vec3 liquidGold = vec3(1.0, 0.72, 0.08);
+
+  // Amber Flame (outer)
+  vec3 amberFlame = vec3(1.0, 0.38, 0.02);
+
+  // Four-zone smooth blend
+  float zone1 = 1.0 - smoothstep(0.0, 0.25, t);           // 0-25%: ice blue
+  float zone2 = smoothstep(0.15, 0.35, t) * (1.0 - smoothstep(0.45, 0.55, t)); // aurora cyan
+  float zone3 = smoothstep(0.45, 0.60, t) * (1.0 - smoothstep(0.75, 0.85, t)); // liquid gold
+  float zone4 = smoothstep(0.75, 0.90, t);                 // amber flame
+
+  vec3 baseColor = iceBlue * zone1
+                 + auroraCyan * zone2
+                 + liquidGold * zone3
+                 + amberFlame * zone4;
+
+  // Force intensity pushes toward blazing white
+  vec3 hotShift = mix(baseColor, vec3(1.0, 1.0, 1.0), forceIntensity * 0.7);
+
+  // Subtle per-particle hue variation from seed
+  vec3 tint = (seed - 0.5) * 0.12;
+  return clamp(hotShift + tint, 0.0, 1.0);
+}
+
+// ─── Gaussian Force Fields ──────────────────────────────────
+
+// Attraction: Gaussian capture ring + exponential close-range pull
 vec3 attractForce(vec3 pos, vec3 center, float strength) {
   vec3 dir = center - pos;
   float dist = length(dir);
-  // Inverse-square with soft core to prevent singularity
-  float magnitude = strength / (dist * dist + 0.6);
-  // Radial falloff beyond 8 units
-  magnitude *= 1.0 - smoothstep(4.0, 10.0, dist);
-  return normalize(dir) * magnitude * 20.0;
+  if (dist < 0.001) return vec3(0.0);
+
+  // Gaussian capture bell at optimal range ~3 units
+  float capture = exp(-pow(dist - 2.8, 2.0) / 2.8);
+  // Exponential close-range vacuum
+  float closePull = exp(-dist * 1.4) * 2.5;
+  // Gentle long-range awareness
+  float longRange = exp(-dist * 0.12) * 0.35;
+
+  float magnitude = strength * (capture * 2.2 + closePull + longRange);
+  magnitude *= 1.0 - smoothstep(12.0, 28.0, dist);
+
+  return normalize(dir) * magnitude * 30.0;
 }
 
-// Repulsion: particles pushed outward from a point
+// Repulsion: Gaussian push ring + close-range explosive push
 vec3 repelForce(vec3 pos, vec3 center, float strength) {
   vec3 dir = pos - center;
   float dist = length(dir);
-  // Strongest at ~2-5 units, creating a shockwave ring
-  float ring = exp(-abs(dist - 3.5) * 0.7);
-  float near = 1.0 / (dist * dist + 0.8);
-  float magnitude = strength * (ring * 1.8 + near * 0.6);
-  magnitude *= 1.0 - smoothstep(8.0, 20.0, dist);
-  return normalize(dir) * magnitude * 18.0;
+  if (dist < 0.001) return vec3(0.0);
+
+  // Gaussian push ring at ~3.5 units
+  float pushRing = exp(-pow(dist - 3.5, 2.0) / 2.5);
+  // Explosive close-range push
+  float closePush = exp(-dist * 1.0) * 2.8;
+  // Broader repulsion field
+  float broad = exp(-dist * 0.25) * 0.3;
+
+  float magnitude = strength * (pushRing * 2.8 + closePush + broad);
+  magnitude *= 1.0 - smoothstep(14.0, 32.0, dist);
+
+  return normalize(dir) * magnitude * 28.0;
 }
 
-// Point: particles near fingertip follow it
+// Point: Focused Gaussian tracking
 vec3 pointForce(vec3 pos, vec3 tip, float strength) {
   vec3 dir = tip - pos;
   float dist = length(dir);
-  float magnitude = strength / (dist * dist + 0.3);
-  magnitude *= 1.0 - smoothstep(2.5, 10.0, dist);
-  return normalize(dir) * magnitude * 12.0;
+  if (dist < 0.001) return vec3(0.0);
+
+  // Tight Gaussian focus around fingertip
+  float focus = exp(-pow(dist, 2.0) / 2.5);
+  // Secondary wider field
+  float wide = exp(-dist * 0.5) * 0.6;
+
+  float magnitude = strength * (focus * 2.5 + wide);
+  magnitude *= 1.0 - smoothstep(8.0, 22.0, dist);
+
+  return normalize(dir) * magnitude * 24.0;
 }
 
 // ─── Tangent helper ─────────────────────────────────────────
@@ -157,7 +216,6 @@ vec3 getTangent(vec3 radial) {
 
 // ─── Void Core Force Fields ──────────────────────────────────
 
-// Gravitational lensing: tangential distortion around void center
 vec3 lensingForce(vec3 pos, vec3 center, float strength) {
   vec3 toCenter = center - pos;
   float dist = length(toCenter);
@@ -171,76 +229,42 @@ vec3 lensingForce(vec3 pos, vec3 center, float strength) {
   return tangent * lensMag * ringMask * 18.0;
 }
 
-// Vortex: spiral infall with accretion disk + event horizon
 vec3 vortexForce(vec3 pos, vec3 center, float strength) {
   vec3 toCenter = center - pos;
   float dist = length(toCenter);
   vec3 radial = normalize(toCenter);
   vec3 tangent = getTangent(radial);
 
-  // Flatten to XZ plane for accretion disk near center
   float diskFlatten = 1.0 - smoothstep(1.0, 4.0, dist);
   radial.y *= (1.0 - diskFlatten * 0.8);
 
-  // Orbital speed ramps up near center
   float speed = strength / (dist * dist + 0.15);
   float distMask = 1.0 - smoothstep(8.0, 25.0, dist);
 
-  // Event horizon: extreme suction within inner radius
   float horizonPull = smoothstep(1.2, 0.3, dist);
   float horizonBoost = 1.0 + horizonPull * 8.0;
 
-  // Spiral = orbit + infall
   vec3 spiral = tangent * speed * 4.0 + radial * speed * 0.8;
   return spiral * distMask * horizonBoost * 25.0;
 }
 
-// Energy explosion: radial blast + traveling shockwave ring
 vec3 explosionForce(vec3 pos, vec3 center, float strength, float age) {
   vec3 fromCenter = pos - center;
   float dist = length(fromCenter);
   vec3 outward = dist > 0.001 ? normalize(fromCenter) : vec3(0.0, 1.0, 0.0);
 
-  // Expanding shockwave ring
   float ringSpeed = 8.0;
   float ringRadius = age * ringSpeed;
   float ringWidth = 1.2 + age * 0.5;
   float ring = exp(-abs(dist - ringRadius) / ringWidth);
 
-  // Radial push: strongest near center
   float radialPush = strength / (dist * dist + 1.0);
   radialPush *= 1.0 - smoothstep(6.0, 30.0, dist);
 
-  // Decay over ~3.5 seconds
   float decay = 1.0 - smoothstep(2.0, 4.0, age);
   float fadeIn = smoothstep(0.0, 0.15, age);
 
   return outward * (radialPush * 12.0 + ring * strength * 30.0) * decay * fadeIn;
-}
-
-// Void core color remapping
-// Center: blazing white → electric blue → deep purple → dark blue
-vec3 voidCoreColor(vec3 pos, vec3 center, float strength, vec3 baseColor) {
-  float dist = length(pos - center);
-
-  vec3 hotWhite     = vec3(1.0, 1.0, 1.0);
-  vec3 electricBlue = vec3(0.1, 0.45, 1.0);
-  vec3 deepPurple   = vec3(0.35, 0.05, 0.65);
-  vec3 darkBlue     = vec3(0.04, 0.02, 0.18);
-
-  // Smooth color zones
-  float whiteZone  = 1.0 - smoothstep(0.3, 2.0, dist);
-  float blueZone   = smoothstep(0.8, 3.0, dist) * (1.0 - smoothstep(5.0, 8.0, dist));
-  float purpleZone = smoothstep(5.0, 8.0, dist) * (1.0 - smoothstep(10.0, 14.0, dist));
-  float darkZone   = smoothstep(10.0, 14.0, dist);
-
-  vec3 voidCol = hotWhite * whiteZone
-               + electricBlue * blueZone
-               + deepPurple * purpleZone
-               + darkBlue * darkZone;
-
-  // Blend: void color dominates based on strength
-  return mix(baseColor, voidCol, strength);
 }
 
 // ─── Main ────────────────────────────────────────────────────
@@ -259,8 +283,8 @@ void main() {
 
   vec3 velocity = curl1 * 0.5 + curl2 * 0.3 + curl3 * 0.2;
 
-  // Mouse influence — reduced when any force is active
-  float mouseWeight = 0.15 * (1.0 - max(uForceStrength, uVoidStrength) * 0.7);
+  // Mouse influence — suppressed when force active
+  float mouseWeight = 0.15 * (1.0 - max(uForceStrength, uVoidStrength) * 0.85);
   vec3 mouseInfluence = vec3(uMouse.x * 0.8, uMouse.y * 0.5, uMouse.x * 0.3);
   velocity += mouseInfluence * mouseWeight;
 
@@ -278,40 +302,53 @@ void main() {
     vec3 voidForce = vec3(0.0);
 
     if (uVoidPhase < 1.5) {
-      // Phase 1: FORMING — gravitational lensing only
       voidForce = lensingForce(pos, uVoidCenter, s);
     } else if (uVoidPhase < 2.5) {
-      // Phase 2: ACTIVE — full vortex + lensing
       vec3 lens = lensingForce(pos, uVoidCenter, s * 0.4);
       vec3 vortex = vortexForce(pos, uVoidCenter, s);
       voidForce = lens + vortex;
     } else {
-      // Phase 3: EXPLODING — radial blast with shockwave
       float age = uTime - uVoidExplosionTime;
       voidForce = explosionForce(pos, uVoidCenter, s, age);
     }
 
     displaced = pos + mix(naturalFlow, voidForce, uVoidStrength * 0.9);
 
-    // ── Void core color ──────────────────────────────
+    float forceMag = length(voidForce) * uVoidStrength;
+    vForceIntensity = clamp(forceMag * 1.5, 0.0, 1.0);
+
+    // Void-core palette: center white → ice-blue → deep purple → black
+    float dist = length(pos - uVoidCenter);
+    float dt = clamp(dist / 14.0, 0.0, 1.0);
+
+    vec3 voidWhite  = vec3(1.0, 1.0, 1.0);
+    vec3 voidIce    = vec3(0.0, 0.85, 1.0);
+    vec3 voidPurple = vec3(0.45, 0.08, 0.80);
+    vec3 voidDark   = vec3(0.03, 0.02, 0.15);
+
+    float w0 = 1.0 - smoothstep(0.0, 0.25, dt);
+    float w1 = smoothstep(0.15, 0.35, dt) * (1.0 - smoothstep(0.55, 0.65, dt));
+    float w2 = smoothstep(0.55, 0.68, dt) * (1.0 - smoothstep(0.85, 0.95, dt));
+    float w3 = smoothstep(0.85, 0.95, dt);
+
+    vec3 vcCol = voidWhite * w0 + voidIce * w1 + voidPurple * w2 + voidDark * w3;
+
     if (uVoidPhase < 2.5) {
-      // Forming / Active: distance-based color zones
-      vColor = voidCoreColor(pos, uVoidCenter, uVoidStrength, aColor);
+      vColor = vcCol;
     } else {
-      // Exploding: bright flash + residual void color
       float age = uTime - uVoidExplosionTime;
       float flash = exp(-age * 2.5);
-      vec3 flashCol = mix(aColor, vec3(1.0, 1.0, 1.0), flash * 0.9);
-      vColor = mix(flashCol, voidCoreColor(pos, uVoidCenter, s, aColor), 0.4);
+      vec3 flashCol = mix(vcCol, vec3(1.0, 1.0, 1.0), flash * 0.9);
+      vColor = flashCol;
 
-      // Boost brightness inside shockwave ring
-      float dist = length(pos - uVoidCenter);
       float ringRadius = age * 8.0;
       float inRing = exp(-abs(dist - ringRadius) * 1.5);
       vColor += vec3(1.0, 0.8, 0.3) * inRing * s * 2.0;
     }
   } else {
     // ═══ NORMAL GESTURE MODE ═══
+    float forceOn = smoothstep(0.0, 1.0, uForceStrength);
+
     if (uForceStrength > 0.01) {
       float s = uForceStrength * breathe;
 
@@ -319,17 +356,23 @@ void main() {
         forceField += attractForce(pos, uHandPos, s);
       } else if (uForceType < 2.5) {
         forceField += repelForce(pos, uHandPos, s);
-        float dist = length(pos - uHandPos);
-        forceBoost = 1.0 + exp(-abs(dist - 3.5) * 0.8) * s * 1.5;
       } else {
         forceField += pointForce(pos, uFingertipPos, s);
-        float tipDist = length(pos - uFingertipPos);
-        forceBoost = 1.0 + exp(-tipDist * 1.2) * s * 2.0;
       }
     }
 
-    displaced = pos + mix(naturalFlow, forceField, uForceStrength * 0.85);
-    vColor = aColor * forceBoost;
+    // Aggressive noise suppression when force is active
+    // forceOn^2 creates strong snap: particles abandon curl flow, align to force
+    float noiseSuppression = 1.0 - forceOn * forceOn;
+    vec3 forceDisplacement = forceField * forceOn * 1.5;
+    displaced = pos + naturalFlow * noiseSuppression * 0.12 + forceDisplacement;
+
+    // ── Dual-tone palette: distance-based ice-blue → gold ──
+    float distFromOrigin = length(pos);
+    vColor = distancePalette(distFromOrigin, forceOn, aColor);
+
+    float forceMag = length(forceDisplacement);
+    vForceIntensity = clamp(forceMag * 2.5, 0.0, 1.0);
   }
 
   // ── Render ────────────────────────────────────────────────
@@ -337,8 +380,12 @@ void main() {
   gl_Position = projectionMatrix * mvPosition;
 
   float viewDist = length(mvPosition.xyz);
-  gl_PointSize = aSize * uPixelRatio * (180.0 / -mvPosition.z);
-  gl_PointSize = clamp(gl_PointSize, 0.5, 8.0);
 
-  vAlpha = smoothstep(30.0, 5.0, viewDist);
+  // Exponential size growth under force: particles swell dramatically
+  float sizeScale = 1.0 + vForceIntensity * 1.8;
+  sizeScale *= exp(vForceIntensity * 0.55);
+  gl_PointSize = aSize * sizeScale * uPixelRatio * (220.0 / -mvPosition.z);
+  gl_PointSize = clamp(gl_PointSize, 0.3, 9.0);
+
+  vAlpha = smoothstep(35.0, 4.0, viewDist);
 }

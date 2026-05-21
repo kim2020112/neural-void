@@ -18,10 +18,10 @@ src/
   shaders/        # GLSL shader source files
     background.vert  Pass-through vertex shader
     background.frag  Multi-layer noise nebula + star field
-    particle.vert    3D Simplex + Curl noise, gesture force fields, void core physics
-    particle.frag    Triple-layer soft particle, additive glow
+    particle.vert    3D Simplex + Curl noise, dual-tone ice-blue→gold palette, Gaussian force curves, exp point sizing, void core physics
+    particle.frag    Five-layer isotropic HDR glow (spike/core/glow/halo/feather), force-based warm shift
   store/          # Zustand global state
-    appStore.ts     App phase, camera, gesture data, hand tracking, void core state
+    appStore.ts     App phase, camera, gesture data, hand tracking, void core state, particle shape
   ui/             # React UI overlays
     App.tsx         Root orchestrator
     EnterScreen.tsx Welcome overlay with START button
@@ -132,20 +132,49 @@ Vite dev server is configured with a self-signed certificate (`.cert/`, gitignor
 so the project is testable from remote devices. On the first visit, the browser
 will show a certificate warning — click "Advanced" → "Proceed" to bypass.
 
-### 8. GPU particle computation (no CPU loops)
+### 8. GPU particle computation with JS morph
 All 20,000 particle positions are computed on the GPU via Curl noise in the vertex
-shader. The CPU only updates uniforms (`uTime`, `uMouse`). BufferGeometry
-attributes (position, color, size) are uploaded once at init and never touched by
-JS again. This is why we can hold 60fps with tens of thousands of particles.
+shader. The CPU only updates uniforms (`uTime`, `uMouse`, etc.). BufferGeometry
+attributes are uploaded once and morph transitions are handled by lerping the
+position buffer in JS (`useFrame`) — smooth shape-switching without shader complexity.
 
-### 9. AdditiveBlending + Bloom = neon glow
+### 9. AdditiveBlending + HDR Bloom = cinematic aurora
 Particles use `THREE.AdditiveBlending` so overlapping particles accumulate
-brightness. The `EffectComposer` + `Bloom` pass then amplifies bright areas,
-creating the sci-fi neon energy look without expensive custom render targets.
+brightness. The fragment shader outputs HDR values up to 5.5× at max force
+intensity, which the `EffectComposer` + `Bloom` pass catches for quantum-core
+glow without blowing out the whole scene.
 
-### 10. Two-stage gesture smoothing pipeline
+### 10. Two-stage gesture smoothing pipeline (tuned for snap)
 Raw MediaPipe coordinates are noisy. The pipeline smooths at two levels:
 1. **EMA in GestureRecognizer** (factor=0.35) — reduces per-frame jitter before store write
-2. **Lerp in useFrame** (factor=0.15) — prevents sudden position jumps in the shader
-Additionally, a gesture stability filter requires 6 consecutive frames (~200ms)
-of the same gesture before activating, preventing flicker between gesture states.
+2. **Lerp in useFrame** (hand=0.32, fingertip=0.40, void-center=0.30) — responsive "咬合" snap
+Additionally, a gesture hysteresis state machine (activate=4, release=10, maxLock=30 frames)
+prevents flicker between gesture states.
+
+### 11. Dual-tone HDR palette: ice blue → liquid gold
+Particle color is computed dynamically in the vertex shader based on distance from
+origin — NOT stored as a static attribute. The palette blends through four zones:
+aurora ice blue (#00E5FF) at core → cyan → liquid gold (#FFB300) → amber flame
+at periphery. The `aColor` attribute provides only subtle per-particle tint variation
+(±0.1 around neutral). Force intensity pushes colors toward blazing white.
+
+### 12. Gaussian force curves (non-linear dynamics)
+All force fields use Gaussian or exponential decay instead of linear/inverse-square:
+- **Attraction**: Gaussian capture bell at ~2.8 units + exponential close-range vacuum + long-range awareness
+- **Repulsion**: Gaussian push ring at ~3.5 units + explosive close-range push
+- **Point**: Tight Gaussian focus around fingertip
+This creates dramatic "instant capture" and "violent repel" behavior at critical distances.
+
+### 13. Multi-geometry morphing system
+Four mathematical particle shapes, switchable via `store.setParticleShape()`:
+- `galaxy` — Spiral galaxy with core/halo/arms
+- `saturn_ring` — Flat concentric rings with inner void and radial wave texture
+- `dna_helix` — Dual-strand helix with bridge particles along Y axis
+- `fibonacci_sphere` — Golden-angle sphere lattice with noise perturbation and multi-shell depth
+Shape transitions use JS-side buffer lerping with `easeInOutCubic` easing (~1.5s).
+
+### 14. Aggressive noise suppression under force
+When gesture force is active (`forceOn > 0`), curl noise contribution is suppressed
+by `(1.0 - forceOn²) × 0.12`. At full force, particles abandon natural flow entirely
+and align to force field lines, creating a strong "掌控感" (sense of control). When
+the hand releases, particles dissolve back into smoke-like curl noise.

@@ -34,9 +34,9 @@ npm run preview   # → serve dist/ locally
 
 1. **Phase 1** — Scaffold: R3F scene, camera, gesture recognition skeleton ✅
 2. **Phase 2** — GPU particle system (20,000 particles, Bloom, shader-driven) ✅
-3. **Phase 3** — Gesture-to-effect mapping (fist = attract, palm = repulse, etc.) ✅
-4. **Phase 4** — Void Core (black hole mode): lensing, vortex, explosion ✅
-5. **Phase 5** — Post-processing, hologram overlays, cinematic polish
+3. **Phase 3** — Gesture-to-effect mapping (fist=attract, palm=repel, point=follow) ✅
+4. **Phase 4** — Void Core (black hole mode): lensing, vortex, explosion + dual-hand triggers ✅
+5. **Phase 5** — Cinematic polish: dual-tone HDR palette, Gaussian force curves, multi-geometry morphing ✅
 
 ## Browser Support
 

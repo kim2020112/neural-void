@@ -3,6 +3,7 @@ import { create } from 'zustand'
 export type AppPhase = 'idle' | 'loading' | 'active'
 export type GestureType = 'none' | 'fist' | 'open_palm' | 'point'
 export type VoidCorePhase = 'idle' | 'forming' | 'active' | 'exploding'
+export type ParticleShape = 'galaxy' | 'saturn_ring' | 'dna_helix' | 'fibonacci_sphere'
 
 export interface Vec3 {
   x: number
@@ -59,6 +60,10 @@ interface AppState {
   voidCoreStrength: number
   voidExplosionTime: number
 
+  // Particle shape / morphology
+  particleShape: ParticleShape
+  setParticleShape: (shape: ParticleShape) => void
+
   setPhase: (phase: AppPhase) => void
   setCameraReady: (ready: boolean) => void
   setGestureData: (data: GestureData) => void
@@ -100,6 +105,8 @@ export const useAppStore = create<AppState>((set) => ({
   voidCoreStrength: 0,
   voidExplosionTime: -1,
 
+  particleShape: 'galaxy',
+
   setPhase: (phase) => set({ phase }),
   setCameraReady: (ready) => set({ cameraReady: ready }),
   setGestureData: (data) => set({ gestureData: data }),
@@ -116,4 +123,5 @@ export const useAppStore = create<AppState>((set) => ({
   setVoidCenter: (pos) => set({ voidCenter: pos }),
   setVoidCoreStrength: (s) => set({ voidCoreStrength: s }),
   setVoidExplosionTime: (t) => set({ voidExplosionTime: t }),
+  setParticleShape: (shape) => set({ particleShape: shape }),
 }))

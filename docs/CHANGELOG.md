@@ -107,7 +107,44 @@
 - 迟滞状态机防止 MediaPipe 的 "None" 类输出覆盖有效手势
 - 力场与 curl noise 根据 `forceStrength` 混合，低强度时自然流动保持可见
 
-## 2026-05-20 — Phase 4: Void Core（黑洞模式）
+## 2026-05-21 — Phase 5: Cinematic Visual System Rewrite
+
+### Changed — Shaders (complete rewrite)
+- **`particle.vert`** — 顶点着色器全面重构：
+  - 新增双色调距离映射调色板 `distancePalette()` — 极光冰蓝(核心)→流沙金→琥珀焰(边缘)
+  - 力场曲线从线性衰减改为高斯/指数曲线：`attractForce`(高斯捕获环+近距指数真空)、`repelForce`(高斯推挤环+近距爆炸推力)、`pointForce`(紧焦高斯追踪)
+  - 手势激活时噪声压制从 `0.4` 提升到 `(1-forceOn²)×0.12`，粒子瞬间脱离自然流动排列成磁力线
+  - `gl_PointSize` 引入 `exp(vForceIntensity×0.55)` 指数膨胀因子
+  - Void Core 色彩也改为新的白→冰蓝→紫→暗色调色板
+- **`particle.frag`** — 片元着色器全面重构：
+  - 五层各向同性光晕：spike(exp(-d×10))→core(exp(-d×4.5))→glow→halo→feather
+  - HDR 输出：受力时 `hdrBoost = 1.0 + vForceIntensity×4.5`，最高 5.5× 突破色彩天花板
+  - 热核尖峰在受力时向纯白偏移，触发 Bloom 后处理
+- **颜色哲学**：从 8 色随机霓虹调色板 → 统一的冰蓝到耀金距离渐变，`aColor` 属性仅保留微扰种子
+
+### Added — Multi-Geometry Morphing System
+- **`ParticleUniverse.tsx`** — 四种数学参数化粒子形态：
+  - `generateSaturnRingPositions()` — 扁平同心环，内虚空+径向波形纹理
+  - `generateDNAHelixPositions()` — 双轨螺旋+桥接粒子+沿Y轴上升
+  - `generateFibonacciSpherePositions()` — 斐波那契球面+噪波扰动+多层壳
+  - `generateGalaxyPositions()` — 增强版螺旋星系（保留）
+- **形态渐变系统**：JS 侧 `morphRef` 管理缓入缓出（`easeInOutCubic`），~1.5s 完成几何过渡
+- **`appStore` 新增**：`ParticleShape` 类型、`particleShape` 状态、`setParticleShape()` setter
+
+### Changed — Interaction Dynamics
+- **手势跟随插值提速**：`uHandPos` lerp 0.25→0.32, `uFingertipPos` 0.35→0.40, `uVoidCenter` 0.2→0.30
+- **力场物理重写**：从线性衰减改为高斯铃曲线，产生"瞬间捕获"和"剧烈弹开"的戏剧性加速
+- **噪声压制强化**：力量激活时粒子彻底脱离 curl noise，松开后如轻烟散开
+
+### Changed — Post-Processing
+- **Bloom 参数升级**：`luminanceThreshold` 0.15→0.08, `intensity` 2.5→3.0, `radius` 0.8→1.0
+- 配合着色器 HDR 输出（最高 5.5×），产生"量子核爆"极光晕染效果
+
+### Design Notes
+- 着色器色彩逻辑从依赖 attribute 静态颜色 → 完全基于 `length(pos)` 动态计算
+- 所有力场函数从 `1/(dist×k + c)` 改为 `exp(-(dist-opt)²/sigma²)` 高斯曲线
+- 形态切换通过 JS 端 buffer lerp 而非着色器 morph target，保持 shader 简洁
+- 后处理参数调整利用了 HDR 管线的全部能力：粒子值 >1.0 才触发 Bloom
 
 ### Added
 - `appStore` 扩展：

@@ -157,6 +157,7 @@ export function useGestureRecognizer() {
   const fistHoldStartRef = useRef(0)
   const voidTriggeredRef = useRef(false)
   const formingStartRef = useRef(0)
+  const explosionStartRef = useRef(0)
 
   const processFrame = useCallback(() => {
     const video = (window as unknown as Record<string, unknown>)
@@ -243,6 +244,25 @@ export function useGestureRecognizer() {
     const singleFist = h0Gesture === 'fist' && h0Detected && !h1Detected
 
     if (!voidTriggeredRef.current) {
+      // Auto-reset stale void core phases (e.g. 'exploding' stuck from a previous cycle)
+      const vcpReset = store.voidCorePhase
+      if (vcpReset === 'exploding') {
+        if (explosionStartRef.current === 0) {
+          explosionStartRef.current = performance.now()
+        }
+        // Match shader decay (smoothstep(2.0, 4.0, age)) → reset about 3.5s after explosion
+        if (performance.now() - explosionStartRef.current > 3500) {
+          store.setVoidCorePhase('idle')
+          explosionStartRef.current = 0
+        }
+      } else if (vcpReset !== 'idle') {
+        // Stale forming/active with no trigger — clean up
+        store.setVoidCorePhase('idle')
+        explosionStartRef.current = 0
+      } else {
+        explosionStartRef.current = 0
+      }
+
       if (bothFists) {
         // Instant trigger on both fists
         voidTriggeredRef.current = true

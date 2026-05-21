@@ -21,10 +21,11 @@ export function Scene() {
       <MouseTracker />
       <EffectComposer>
         <Bloom
-          luminanceThreshold={0.2}
+          luminanceThreshold={0.08}
+          luminanceSmoothing={0.9}
           mipmapBlur
-          intensity={1.2}
-          radius={0.6}
+          intensity={3.0}
+          radius={1.0}
         />
       </EffectComposer>
     </Canvas>
