@@ -109,6 +109,7 @@ export function ParticleUniverse() {
   const { gl } = useThree()
 
   const smoothForceRef = useRef(0)
+  const smoothVoidStrengthRef = useRef(0)
 
   const { positions, colors, sizes } = useMemo(
     () => ({
@@ -129,6 +130,10 @@ export function ParticleUniverse() {
       uForceType: { value: 0.0 },
       uForceStrength: { value: 0.0 },
       uFingertipPos: { value: new THREE.Vector3(0, 0, 0) },
+      uVoidCenter: { value: new THREE.Vector3(0, 0, 0) },
+      uVoidPhase: { value: 0.0 },
+      uVoidStrength: { value: 0.0 },
+      uVoidExplosionTime: { value: -1.0 },
     }),
     [gl]
   )
@@ -152,20 +157,52 @@ export function ParticleUniverse() {
       0.15
     )
 
-    // Gesture is already stabilized by hysteresis in GestureRecognizer.
-    // Just read it and apply the force.
-    const gestureType = store.handDetected ? store.gestureType : 'none'
-    uniforms.uForceType.value = gestureToForceType(gestureType)
+    // ── Void Core lifecycle ──────────────────────────────────
+    const vcp = store.voidCorePhase
+    const phaseMap: Record<string, number> = { idle: 0, forming: 1, active: 2, exploding: 3 }
+    uniforms.uVoidPhase.value = phaseMap[vcp] ?? 0
 
-    if (gestureType !== 'none') {
-      // Specific gesture — full force
-      smoothForceRef.current += (1.0 - smoothForceRef.current) * 0.08
-    } else if (store.handDetected) {
-      // Hand present, no gesture — subtle passive attract
-      smoothForceRef.current += (0.25 - smoothForceRef.current) * 0.04
+    // Lerp void center toward store value
+    uniforms.uVoidCenter.value.lerp(
+      new THREE.Vector3(store.voidCenter.x, store.voidCenter.y, store.voidCenter.z),
+      0.1
+    )
+
+    // Smooth void core strength based on phase
+    if (vcp === 'forming' || vcp === 'active') {
+      smoothVoidStrengthRef.current += (1.0 - smoothVoidStrengthRef.current) * 0.06
+    } else if (vcp === 'exploding') {
+      smoothVoidStrengthRef.current += (0.0 - smoothVoidStrengthRef.current) * 0.015
     } else {
-      // No hand — decay
+      smoothVoidStrengthRef.current += (0.0 - smoothVoidStrengthRef.current) * 0.04
+    }
+    uniforms.uVoidStrength.value = smoothVoidStrengthRef.current
+
+    // Capture explosion start time on the first frame of explosion
+    if (vcp === 'exploding' && uniforms.uVoidExplosionTime.value < 0.0) {
+      uniforms.uVoidExplosionTime.value = state.clock.elapsedTime
+    }
+    // Reset sentinel when returning to idle
+    if (vcp === 'idle') {
+      uniforms.uVoidExplosionTime.value = -1.0
+    }
+
+    // ── Gesture force (overridden by void core) ─────────────
+    if (vcp !== 'idle') {
+      // Void core active — override normal gesture force
+      uniforms.uForceType.value = 4.0
       smoothForceRef.current += (0.0 - smoothForceRef.current) * 0.05
+    } else {
+      const gestureType = store.handDetected ? store.gestureType : 'none'
+      uniforms.uForceType.value = gestureToForceType(gestureType)
+
+      if (gestureType !== 'none') {
+        smoothForceRef.current += (1.0 - smoothForceRef.current) * 0.08
+      } else if (store.handDetected) {
+        smoothForceRef.current += (0.25 - smoothForceRef.current) * 0.04
+      } else {
+        smoothForceRef.current += (0.0 - smoothForceRef.current) * 0.05
+      }
     }
 
     uniforms.uForceStrength.value = smoothForceRef.current
