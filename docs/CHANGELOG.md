@@ -78,6 +78,7 @@
   - 手部中心计算（手腕 + 中指 MCP）+ 食指尖提取（landmark 8）
   - EMA 指数平滑（factor=0.35）消除手部抖动
   - `mapGesture()` 将 MediaPipe 手势名映射为内部 `GestureType`
+  - 迟滞状态机（activate=4帧, release=10帧, maxLock=30帧）稳定手势输出
 - `particle.vert` 三种力场：
   - **attractForce** — 向心力，逆平方 + soft core + 径向衰减
   - **repelForce** — 排斥力，冲击波环效果（高斯峰 + 近场衰减）
@@ -87,12 +88,59 @@
 ### Changed
 - `ParticleUniverse.tsx`：
   - 新增 `uHandPos`、`uForceType`、`uForceStrength`、`uFingertipPos` 四个 uniform
-  - 手势稳定过滤器：需连续 6 帧相同手势才激活，3 帧释放（防误触发）
-  - 力场强度非对称 lerp（激活 0.06、释放 0.04）
+  - 力场强度使用平滑 ref 渐变（激活 0.08、被动 0.04、衰减 0.05）
   - 手部/指尖坐标独立二次平滑（lerp factor 0.15）
 - `useGestureRecognizer` 改为单手模式（`numHands: 1`），专注交互质量
+- 移除 `setPhase('idle')` catch 块（识别器失败不再回退首页）
+
+### Fixed
+- MediaPipe WASM CDN 路径与安装版本不匹配（0.10.22→0.10.35）导致初始化失败
+- 手势输出在 "None" 和高置信度手势之间快速抖动（迟滞状态机修复）
+
+### Added
+- `src/core/HandCursor.tsx` — 青色球体追踪手部位置，用于调试坐标映射
+- `src/core/ReferenceRing.tsx` — 白色圆环参考系，标示粒子宇宙原点
+- `src/ui/DebugOverlay.tsx` — 诊断面板：FPS、Hand 状态、Gesture 类型、Force 强度、坐标
 
 ### Design Notes
 - 两段式平滑：识别器 EMA(0.35) → store → useFrame lerp(0.15) → shader
-- 手势稳定 200ms 延迟避免媒体噪音导致粒子抽搐
+- 迟滞状态机防止 MediaPipe 的 "None" 类输出覆盖有效手势
 - 力场与 curl noise 根据 `forceStrength` 混合，低强度时自然流动保持可见
+
+## 2026-05-20 — Phase 4: Void Core（黑洞模式）
+
+### Added
+- `appStore` 扩展：
+  - `VoidCorePhase` 类型（idle/forming/active/exploding）
+  - 双手追踪：`hand2Position`、`hand2GestureType`、`hand2Detected` 等
+  - 虚空核心状态：`voidCenter`、`voidCoreStrength`、`voidExplosionTime`
+- `GestureRecognizer.ts` 双手模式：
+  - `numHands: 2`，独立迟滞状态机处理每只手
+  - 触发条件：双手同时握拳（立即触发）或单手握拳 ≥ 2 秒
+  - 爆炸触发：虚空核心激活状态下握拳变为张手
+  - 中心点跟随双手中点或单手握拳位置
+
+### Added (Shader — `particle.vert`)
+- 虚空核心 uniform：`uVoidCenter`、`uVoidPhase`、`uVoidStrength`、`uVoidExplosionTime`
+- **引力透镜** `lensingForce()` — 粒子围绕核心产生切向畸变，形成爱因斯坦环效果
+- **涡流视界** `vortexForce()` — 粒子向内螺旋塌陷，吸积盘扁平化，事件视界极端引力
+- **能量爆炸** `explosionForce()` — 径向爆发 + 扩展冲击波环，~3.5s 衰减
+- **颜色演变** `voidCoreColor()` — 中心炽热白 → 电光蓝 → 深紫 → 暗蓝
+- 主函数分支：`uForceType > 3.5` 时进入虚空核心物理，否则普通手势
+
+### Changed
+- `ParticleUniverse.tsx`：
+  - 新增 4 个 uniform 映射 store 虚空核心状态
+  - `smoothVoidStrengthRef` 控制虚空强度平滑渐变
+  - 爆炸起始时间用 `uVoidExplosionTime` 捕获 R3F 时钟
+- `DebugOverlay.tsx` — 新增 Hand2 状态和 Void Core 阶段/强度显示
+- `particle.vert` 力场增强：attract(×3.3)、repel(×3.3)、point(×3.4)，覆盖范围扩大
+
+### Removed
+- `particle.vert` 中的红色 DEBUG 粒子颜色覆盖
+
+### Design Notes
+- 所有黑洞物理计算在 Vertex Shader 中数学完成，无 CPU 粒子遍历
+- void center 通过 lerp(0.1) 平滑跟随手部，避免跳变
+- 爆炸使用 sentinel 机制（`uVoidExplosionTime = -1` 表示未激活）
+- 三种颜色区域通过 smoothstep 在距离域中自然过渡

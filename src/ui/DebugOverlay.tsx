@@ -9,6 +9,10 @@ export function DebugOverlay() {
   const gestureScore = useAppStore((s) => s.gestureScore)
   const handPosition = useAppStore((s) => s.handPosition)
   const forceStrength = useAppStore((s) => s.forceStrength)
+  const hand2Detected = useAppStore((s) => s.hand2Detected)
+  const hand2GestureType = useAppStore((s) => s.hand2GestureType)
+  const voidCorePhase = useAppStore((s) => s.voidCorePhase)
+  const voidCoreStrength = useAppStore((s) => s.voidCoreStrength)
   const [fps, setFps] = useState(0)
 
   useEffect(() => {
@@ -70,6 +74,40 @@ export function DebugOverlay() {
         <span>Force</span>
         <span>{forceStrength.toFixed(3)}</span>
       </div>
+      {/* ── Hand 2 ── */}
+      <div style={{ height: 1, background: 'rgba(0,255,255,0.1)', margin: '4px 0' }} />
+      <div style={styles.row}>
+        <span>Hand2</span>
+        <span style={{ color: hand2Detected ? '#4f4' : '#f44' }}>
+          {hand2Detected ? 'DETECTED' : 'NONE'}
+        </span>
+      </div>
+      {hand2Detected && (
+        <div style={styles.row}>
+          <span>H2 Gesture</span>
+          <span style={{ color: gestureColor(hand2GestureType), fontWeight: 700 }}>
+            {hand2GestureType}
+          </span>
+        </div>
+      )}
+      {/* ── Void Core ── */}
+      <div style={{ height: 1, background: 'rgba(255,136,0,0.15)', margin: '4px 0' }} />
+      <div style={styles.row}>
+        <span>Void Core</span>
+        <span style={{
+          color: voidCorePhase === 'idle' ? '#666' :
+                 voidCorePhase === 'exploding' ? '#ff4444' : '#ff8800',
+          fontWeight: 700,
+        }}>
+          {voidCorePhase}
+        </span>
+      </div>
+      {voidCorePhase !== 'idle' && (
+        <div style={styles.row}>
+          <span>Void Str</span>
+          <span>{voidCoreStrength.toFixed(3)}</span>
+        </div>
+      )}
       <div style={styles.row}>
         <span>Hand XYZ</span>
         <span style={{ fontSize: 10 }}>

@@ -3,6 +3,8 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import { Background } from './Background'
 import { ParticleUniverse } from '../particles/ParticleUniverse'
 import { MouseTracker } from './MouseTracker'
+import { HandCursor } from './HandCursor'
+import { ReferenceRing } from './ReferenceRing'
 
 export function Scene() {
   return (
@@ -14,6 +16,8 @@ export function Scene() {
     >
       <Background />
       <ParticleUniverse />
+      <HandCursor />
+      <ReferenceRing />
       <MouseTracker />
       <EffectComposer>
         <Bloom
