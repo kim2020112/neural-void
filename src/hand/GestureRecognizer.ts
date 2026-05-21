@@ -148,7 +148,15 @@ export function useGestureRecognizer() {
   const smoothHandRef = useRef<Vec3>({ x: 0, y: 0, z: 0 })
   const smoothFingertipRef = useRef<Vec3>({ x: 0, y: 0, z: 0 })
   const hysteresisRef = useRef<HysteresisState>(createHysteresisState())
+  // Second hand
+  const smoothHandRef2 = useRef<Vec3>({ x: 0, y: 0, z: 0 })
+  const smoothFingertipRef2 = useRef<Vec3>({ x: 0, y: 0, z: 0 })
+  const hysteresisRef2 = useRef<HysteresisState>(createHysteresisState())
   const frameCountRef = useRef(0)
+  // Void core trigger state
+  const fistHoldStartRef = useRef(0)
+  const voidTriggeredRef = useRef(false)
+  const formingStartRef = useRef(0)
 
   const processFrame = useCallback(() => {
     const video = (window as unknown as Record<string, unknown>)
@@ -164,18 +172,12 @@ export function useGestureRecognizer() {
     const store = useAppStore.getState()
     frameCountRef.current++
 
-    if (frameCountRef.current % 60 === 1) {
-      const rawGesture = results.gestures[0]?.[0]?.categoryName ?? '-'
-      const rawScore = results.gestures[0]?.[0]?.score ?? 0
-      console.log(
-        `[NeuralVoid] frame=${frameCountRef.current} ` +
-          `raw=${rawGesture}(${rawScore.toFixed(2)}) ` +
-          `locked=${hysteresisRef.current.lockedGesture} ` +
-          `lockFrame=${hysteresisRef.current.lockCounter}`
-      )
-    }
+    // ── Process Hand 0 ──────────────────────────────────────
+    const h0Detected = results.landmarks.length > 0
+    let h0Gesture: GestureType = 'none'
+    let h0Pos: Vec3 = { x: 0, y: 0, z: 0 }
 
-    if (results.gestures.length > 0 && results.landmarks.length > 0) {
+    if (h0Detected) {
       const gesture = results.gestures[0][0]
       const landmarks = results.landmarks[0]
       const rawGesture = mapGesture(gesture?.categoryName ?? 'None')
@@ -185,27 +187,142 @@ export function useGestureRecognizer() {
       const targetFingertip = computeFingertip(landmarks)
 
       smoothHandRef.current = lerpVec3(smoothHandRef.current, targetHand, SMOOTHING)
-      smoothFingertipRef.current = lerpVec3(
-        smoothFingertipRef.current,
-        targetFingertip,
-        SMOOTHING
-      )
+      smoothFingertipRef.current = lerpVec3(smoothFingertipRef.current, targetFingertip, SMOOTHING)
 
       store.setHandPosition(smoothHandRef.current)
       store.setFingertipPosition(smoothFingertipRef.current)
       store.setHandDetected(true)
 
-      // Apply hysteresis to produce a stable gesture output
-      const stableGesture = updateHysteresis(hysteresisRef.current, rawGesture, rawScore)
-      store.setGestureType(stableGesture, rawScore)
+      h0Gesture = updateHysteresis(hysteresisRef.current, rawGesture, rawScore)
+      store.setGestureType(h0Gesture, rawScore)
+      h0Pos = smoothHandRef.current
     } else {
-      // No hand detected — decay hysteresis
       hysteresisRef.current.noneCounter++
       if (hysteresisRef.current.noneCounter >= HYSTERESIS.release) {
         hysteresisRef.current = createHysteresisState()
       }
       store.setHandDetected(false)
       store.setGestureType('none', 0)
+    }
+
+    // ── Process Hand 1 ──────────────────────────────────────
+    const h1Detected = results.landmarks.length > 1
+    let h1Gesture: GestureType = 'none'
+    let h1Pos: Vec3 = { x: 0, y: 0, z: 0 }
+
+    if (h1Detected) {
+      const gesture = results.gestures[1][0]
+      const landmarks = results.landmarks[1]
+      const rawGesture = mapGesture(gesture?.categoryName ?? 'None')
+      const rawScore = gesture?.score ?? 0
+
+      const targetHand = computeHandCenter(landmarks)
+      const targetFingertip = computeFingertip(landmarks)
+
+      smoothHandRef2.current = lerpVec3(smoothHandRef2.current, targetHand, SMOOTHING)
+      smoothFingertipRef2.current = lerpVec3(smoothFingertipRef2.current, targetFingertip, SMOOTHING)
+
+      store.setHand2Position(smoothHandRef2.current)
+      store.setHand2FingertipPosition(smoothFingertipRef2.current)
+      store.setHand2Detected(true)
+
+      h1Gesture = updateHysteresis(hysteresisRef2.current, rawGesture, rawScore)
+      store.setHand2GestureType(h1Gesture)
+      h1Pos = smoothHandRef2.current
+    } else {
+      hysteresisRef2.current.noneCounter++
+      if (hysteresisRef2.current.noneCounter >= HYSTERESIS.release) {
+        hysteresisRef2.current = createHysteresisState()
+      }
+      store.setHand2Detected(false)
+      store.setHand2GestureType('none')
+    }
+
+    // ── Void Core trigger evaluation ────────────────────────
+    const bothFists = h0Gesture === 'fist' && h1Gesture === 'fist' && h0Detected && h1Detected
+    const singleFist = h0Gesture === 'fist' && h0Detected && !h1Detected
+
+    if (!voidTriggeredRef.current) {
+      if (bothFists) {
+        // Instant trigger on both fists
+        voidTriggeredRef.current = true
+        formingStartRef.current = performance.now()
+        store.setVoidCorePhase('forming')
+        store.setVoidCenter({
+          x: (h0Pos.x + h1Pos.x) / 2,
+          y: (h0Pos.y + h1Pos.y) / 2,
+          z: (h0Pos.z + h1Pos.z) / 2,
+        })
+        fistHoldStartRef.current = 0
+      } else if (singleFist) {
+        // Single fist hold timer
+        if (fistHoldStartRef.current === 0) {
+          fistHoldStartRef.current = performance.now()
+        } else if (performance.now() - fistHoldStartRef.current > 2000) {
+          voidTriggeredRef.current = true
+          formingStartRef.current = performance.now()
+          store.setVoidCorePhase('forming')
+          store.setVoidCenter({ ...h0Pos })
+          fistHoldStartRef.current = 0
+        }
+      } else {
+        fistHoldStartRef.current = 0
+      }
+    }
+
+    // ── Void Core sustain / explode / decay ─────────────────
+    if (voidTriggeredRef.current) {
+      const vcp = store.voidCorePhase
+
+      // Update void center to follow hands
+      if (bothFists) {
+        store.setVoidCenter({
+          x: (h0Pos.x + h1Pos.x) / 2,
+          y: (h0Pos.y + h1Pos.y) / 2,
+          z: (h0Pos.z + h1Pos.z) / 2,
+        })
+      } else if (h0Detected) {
+        store.setVoidCenter({ ...h0Pos })
+      }
+
+      // Explosion trigger: fist → open_palm
+      const anyOpenPalm = h0Gesture === 'open_palm' || (h1Detected && h1Gesture === 'open_palm')
+      if (anyOpenPalm && vcp === 'active') {
+        voidTriggeredRef.current = false
+        store.setVoidCorePhase('exploding')
+        rafRef.current = requestAnimationFrame(processFrame)
+        return
+      }
+
+      // Sustain: at least one fist still held
+      const anyFist = h0Gesture === 'fist' || (h1Detected && h1Gesture === 'fist')
+      if (!anyFist && vcp !== 'forming') {
+        // Fists lost without palm open — decay
+        voidTriggeredRef.current = false
+        store.setVoidCorePhase('idle')
+      }
+
+      // Forming → active transition after 0.5s
+      if (vcp === 'forming' && performance.now() - formingStartRef.current > 500) {
+        store.setVoidCorePhase('active')
+      }
+
+      // Reset void if both hands gone
+      if (!h0Detected && !h1Detected && vcp !== 'exploding') {
+        voidTriggeredRef.current = false
+        store.setVoidCorePhase('idle')
+      }
+    }
+
+    // Log every 60 frames
+    if (frameCountRef.current % 60 === 1) {
+      const h0Raw = results.gestures[0]?.[0]?.categoryName ?? '-'
+      const h1Raw = results.gestures[1]?.[0]?.categoryName ?? '-'
+      console.log(
+        `[NeuralVoid] frame=${frameCountRef.current} ` +
+          `H0=${h0Raw}→${h0Gesture} H1=${h1Raw}→${h1Gesture} ` +
+          `void=${store.voidCorePhase} triggered=${voidTriggeredRef.current}`
+      )
     }
 
     rafRef.current = requestAnimationFrame(processFrame)
@@ -228,7 +345,7 @@ export function useGestureRecognizer() {
             modelAssetPath: MODEL_PATH,
             delegate: 'GPU',
           },
-          numHands: 1,
+          numHands: 2,
           runningMode: 'VIDEO',
         })
 

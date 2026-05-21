@@ -2,6 +2,7 @@ import { create } from 'zustand'
 
 export type AppPhase = 'idle' | 'loading' | 'active'
 export type GestureType = 'none' | 'fist' | 'open_palm' | 'point'
+export type VoidCorePhase = 'idle' | 'forming' | 'active' | 'exploding'
 
 export interface Vec3 {
   x: number
@@ -46,6 +47,18 @@ interface AppState {
   // Is a hand currently detected?
   handDetected: boolean
 
+  // Second hand tracking (for void core dual-fist detection)
+  hand2Position: Vec3
+  hand2FingertipPosition: Vec3
+  hand2GestureType: GestureType
+  hand2Detected: boolean
+
+  // Void core state
+  voidCorePhase: VoidCorePhase
+  voidCenter: Vec3
+  voidCoreStrength: number
+  voidExplosionTime: number
+
   setPhase: (phase: AppPhase) => void
   setCameraReady: (ready: boolean) => void
   setGestureData: (data: GestureData) => void
@@ -54,6 +67,14 @@ interface AppState {
   setFingertipPosition: (pos: Vec3) => void
   setGestureType: (type: GestureType, score: number) => void
   setHandDetected: (detected: boolean) => void
+  setHand2Position: (pos: Vec3) => void
+  setHand2FingertipPosition: (pos: Vec3) => void
+  setHand2GestureType: (type: GestureType) => void
+  setHand2Detected: (detected: boolean) => void
+  setVoidCorePhase: (phase: VoidCorePhase) => void
+  setVoidCenter: (pos: Vec3) => void
+  setVoidCoreStrength: (s: number) => void
+  setVoidExplosionTime: (t: number) => void
 }
 
 const ZERO_VEC3: Vec3 = { x: 0, y: 0, z: 0 }
@@ -70,6 +91,14 @@ export const useAppStore = create<AppState>((set) => ({
   gestureScore: 0,
   forceStrength: 0,
   handDetected: false,
+  hand2Position: ZERO_VEC3,
+  hand2FingertipPosition: ZERO_VEC3,
+  hand2GestureType: 'none',
+  hand2Detected: false,
+  voidCorePhase: 'idle',
+  voidCenter: ZERO_VEC3,
+  voidCoreStrength: 0,
+  voidExplosionTime: -1,
 
   setPhase: (phase) => set({ phase }),
   setCameraReady: (ready) => set({ cameraReady: ready }),
@@ -79,4 +108,12 @@ export const useAppStore = create<AppState>((set) => ({
   setFingertipPosition: (pos) => set({ fingertipPosition: pos }),
   setGestureType: (type, score) => set({ gestureType: type, gestureScore: score }),
   setHandDetected: (detected) => set({ handDetected: detected }),
+  setHand2Position: (pos) => set({ hand2Position: pos }),
+  setHand2FingertipPosition: (pos) => set({ hand2FingertipPosition: pos }),
+  setHand2GestureType: (type) => set({ hand2GestureType: type }),
+  setHand2Detected: (detected) => set({ hand2Detected: detected }),
+  setVoidCorePhase: (phase) => set({ voidCorePhase: phase }),
+  setVoidCenter: (pos) => set({ voidCenter: pos }),
+  setVoidCoreStrength: (s) => set({ voidCoreStrength: s }),
+  setVoidExplosionTime: (t) => set({ voidExplosionTime: t }),
 }))
