@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import { SHAPE_OPTIONS } from '../particles/shapes/catalog'
 import type { GestureType, InteractionMode, TrackingStatus } from '../store/appStore'
+import type { ParticleShape } from '../particles/shapes/types'
+import { preloadSceneRenderer } from '../scenes/sceneProfiles'
 
 function Meter({ label, value, tint }: { label: string; value: number; tint: string }) {
   return (
@@ -133,6 +135,8 @@ export function DebugOverlay() {
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [pendingShape, setPendingShape] = useState<ParticleShape | null>(null)
+  const [failedShape, setFailedShape] = useState<ParticleShape | null>(null)
 
   const halo = useMemo(
     () => `0 0 ${10 + cinematicState.energy * 12}px rgba(125,224,255,0.12), 0 0 ${20 + cinematicState.shock * 18}px rgba(255,211,107,0.06)`,
@@ -142,6 +146,24 @@ export function DebugOverlay() {
     () => SHAPE_OPTIONS.find((shape) => shape.id === particleShape),
     [particleShape],
   )
+
+  const warmScene = (shape: ParticleShape) => {
+    void preloadSceneRenderer(shape).catch(() => undefined)
+  }
+
+  const selectScene = async (shape: ParticleShape) => {
+    if (shape === particleShape || pendingShape) return
+    setPendingShape(shape)
+    setFailedShape(null)
+    try {
+      await preloadSceneRenderer(shape)
+      setParticleShape(shape)
+    } catch {
+      setFailedShape(shape)
+    } finally {
+      setPendingShape(null)
+    }
+  }
 
   if (phase !== 'active') return null
 
@@ -281,20 +303,32 @@ export function DebugOverlay() {
           <div style={styles.shapeGrid}>
             {SHAPE_OPTIONS.map((shape) => {
               const active = particleShape === shape.id
+              const pending = pendingShape === shape.id
+              const failed = failedShape === shape.id
               return (
                 <button
                   key={shape.id}
+                  aria-busy={pending}
+                  aria-pressed={active}
+                  disabled={pendingShape !== null}
                   style={{
                     ...styles.shapeCard,
                     borderColor: active ? shape.accent : 'rgba(255,255,255,0.08)',
                     background: active ? 'rgba(255,255,255,0.08)' : 'rgba(4, 8, 20, 0.55)',
                     boxShadow: active ? `0 0 16px ${shape.accent}26` : 'none',
+                    cursor: pending ? 'wait' : pendingShape ? 'default' : 'pointer',
+                    opacity: pendingShape && !pending ? 0.58 : 1,
                   }}
-                  onClick={() => setParticleShape(shape.id)}
+                  onPointerEnter={() => warmScene(shape.id)}
+                  onPointerDown={() => warmScene(shape.id)}
+                  onFocus={() => warmScene(shape.id)}
+                  onClick={() => { void selectScene(shape.id) }}
                 >
                   <span style={{ ...styles.shapeAccent, background: shape.accent }} />
                   <strong style={styles.shapeLabel}>{shape.label}</strong>
-                  <span style={styles.shapeHint}>{shape.hint}</span>
+                  <span style={styles.shapeHint}>
+                    {pending ? '正在加载场景' : failed ? '加载失败，点击重试' : shape.hint}
+                  </span>
                 </button>
               )
             })}
@@ -640,6 +674,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   shapeCard: {
     position: 'relative',
+    minHeight: 76,
     padding: '12px 10px 10px',
     borderRadius: 14,
     border: '1px solid rgba(255,255,255,0.08)',

@@ -92,6 +92,85 @@ function SingularityDiagram({
   )
 }
 
+const DNA_RUNG_Y = [10, 18, 26, 34, 42, 50, 58, 66] as const
+
+function DnaDiagram({
+  mode,
+  strength,
+}: {
+  mode: InteractionMode
+  strength: number
+}) {
+  const compressed = mode === 'attract' || mode === 'forming_void' || mode === 'void_core'
+  const expanded = mode === 'repel' || mode === 'exploding'
+  const dual = mode === 'duality' || mode === 'forming_void' || mode === 'void_core'
+  const xScale = compressed ? 0.88 : expanded ? 1.12 : 1
+  const yScale = dual ? 0.9 + strength * 0.2 : compressed ? 0.94 : 1
+  const strandOffset = mode === 'repel' ? strength * 7 : mode === 'exploding' ? strength * 9 : 0
+  const rungOpacity = mode === 'repel' ? 0.72 - strength * 0.52 : mode === 'exploding' ? 0.34 : 0.72
+
+  return (
+    <svg width="120" height="72" viewBox="0 0 120 72" aria-hidden>
+      <g transform={`translate(60 36) scale(${xScale} ${yScale}) translate(-60 -36)`}>
+        {mode === 'exploding' && (
+          <>
+            <path d="M34 4 C78 13 78 24 34 34 C-2 44 2 57 42 68" fill="none" stroke="rgba(92,225,255,0.28)" strokeWidth="1" transform="translate(-8 0)" />
+            <path d="M86 4 C42 13 42 24 86 34 C122 44 118 57 78 68" fill="none" stroke="rgba(168,132,255,0.28)" strokeWidth="1" transform="translate(8 0)" />
+          </>
+        )}
+        <path d="M42 4 C78 13 78 24 42 34 C8 44 8 57 42 68" fill="none" stroke="#5ce1ff" strokeWidth="1.8" transform={`translate(${-strandOffset} 0)`} />
+        <path d="M78 4 C42 13 42 24 78 34 C112 44 112 57 78 68" fill="none" stroke="#a884ff" strokeWidth="1.8" transform={`translate(${strandOffset} 0)`} />
+        {DNA_RUNG_Y.map((y, index) => {
+          const centerBias = Math.sin((y - 4) / 64 * Math.PI * 4) * 14
+          const halfWidth = 12 + Math.abs(centerBias) * 0.42 + strandOffset
+          return (
+            <line
+              key={y}
+              x1={60 + centerBias - halfWidth}
+              x2={60 + centerBias + halfWidth}
+              y1={y}
+              y2={y}
+              stroke={index % 2 === 0 ? '#ffc857' : '#72e7ff'}
+              strokeWidth="1"
+              opacity={rungOpacity}
+            />
+          )
+        })}
+      </g>
+      {mode === 'point' && (
+        <>
+          <circle cx="60" cy="36" r={5 + strength * 3} fill="none" stroke="#eafcff" strokeWidth="1.2" />
+          <path d="M47 36 H73" stroke="rgba(114,231,255,0.8)" strokeWidth="1" />
+        </>
+      )}
+      {dual && (
+        <>
+          <circle cx="15" cy="36" r="3" fill="#ffc857" />
+          <circle cx="105" cy="36" r="3" fill="#a884ff" />
+          <path d="M19 36 H36 M84 36 H101" stroke="rgba(224,235,255,0.55)" strokeWidth="1" />
+        </>
+      )}
+      {(mode === 'forming_void' || mode === 'void_core' || mode === 'exploding') && (
+        <circle cx="60" cy="36" r={9 + strength * 7} fill="none" stroke="rgba(244,251,255,0.56)" strokeWidth="1" />
+      )}
+    </svg>
+  )
+}
+
+function SceneDiagram({
+  diagram,
+  mode,
+  strength,
+}: {
+  diagram: 'orbit' | 'dna' | 'singularity'
+  mode: InteractionMode
+  strength: number
+}) {
+  if (diagram === 'singularity') return <SingularityDiagram mode={mode} strength={strength} />
+  if (diagram === 'dna') return <DnaDiagram mode={mode} strength={strength} />
+  return <OrbitDiagram mode={mode} />
+}
+
 export function SceneHud() {
   const particleShape = useAppStore((state) => state.particleShape)
   const phase = useAppStore((state) => state.phase)
@@ -210,11 +289,11 @@ export function SceneHud() {
           </div>
         )}
         <div style={{ ...styles.bottomScope, ...(compact ? styles.bottomScopeCompact : {}) }}>
-          {hud.diagram === 'singularity' ? (
-            <SingularityDiagram mode={activeMode} strength={displayPercent / 100} />
-          ) : (
-            <OrbitDiagram mode={activeMode} />
-          )}
+          <SceneDiagram
+            diagram={hud.diagram}
+            mode={activeMode}
+            strength={displayPercent / 100}
+          />
         </div>
       </div>
     </div>

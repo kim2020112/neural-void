@@ -1,8 +1,7 @@
-import type { ComponentType } from 'react'
+import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import { ParticleUniverse } from '../particles/ParticleUniverse'
-import { SaturnSystem } from '../particles/saturn/SaturnSystem'
 import { SATURN_BLOOM, SATURN_CAMERA, SATURN_COUNTS } from '../particles/saturn/saturnTypes'
-import { SingularitySystem } from '../particles/singularity/SingularitySystem'
+import { DNA_BLOOM, DNA_CAMERA, DNA_COUNTS } from '../particles/dna/dnaTypes'
 import {
   SINGULARITY_BLOOM,
   SINGULARITY_CAMERA,
@@ -10,6 +9,51 @@ import {
 } from '../particles/singularity/singularityTypes'
 import type { ParticleShape } from '../particles/shapes/types'
 import type { InteractionMode } from '../store/appStore'
+
+interface LazySceneRenderer {
+  Renderer: LazyExoticComponent<ComponentType>
+  preload: () => Promise<void>
+}
+
+function defineLazyRenderer<TModule>(
+  loadModule: () => Promise<TModule>,
+  select: (module: TModule) => ComponentType,
+): LazySceneRenderer {
+  let promise: Promise<{ default: ComponentType }> | undefined
+  const load = () => {
+    promise ??= loadModule()
+      .then((module) => ({ default: select(module) }))
+      .catch((error: unknown) => {
+        promise = undefined
+        throw error
+      })
+    return promise
+  }
+
+  return {
+    Renderer: lazy(load),
+    preload: async () => { await load() },
+  }
+}
+
+const saturnRenderer = defineLazyRenderer(
+  () => import('../particles/saturn/SaturnSystem'),
+  (module) => module.SaturnSystem,
+)
+const dnaRenderer = defineLazyRenderer(
+  () => import('../particles/dna/DnaSystem'),
+  (module) => module.DnaSystem,
+)
+const singularityRenderer = defineLazyRenderer(
+  () => import('../particles/singularity/SingularitySystem'),
+  (module) => module.SingularitySystem,
+)
+
+const SCENE_PRELOADERS: Partial<Record<ParticleShape, () => Promise<void>>> = {
+  saturn_ring: saturnRenderer.preload,
+  dna_helix: dnaRenderer.preload,
+  singularity: singularityRenderer.preload,
+}
 
 export interface CameraPose {
   position: readonly [number, number, number]
@@ -63,16 +107,17 @@ export interface SceneHudProfile {
   controlLabel: string
   structureCount: number
   structureLabel: string
-  diagram: 'orbit' | 'singularity'
+  diagram: 'orbit' | 'dna' | 'singularity'
   description: readonly string[]
   interactions: Record<InteractionMode, GestureHudProfile>
 }
 
 export interface SceneProfile {
   id: ParticleShape
-  Renderer: ComponentType
+  Renderer: ComponentType | LazyExoticComponent<ComponentType>
   camera: CameraPose
   heroCamera?: CameraPose
+  fogDensity: number
   post: PostProfile
   atmosphere: AtmosphereProfile
   hud?: SceneHudProfile
@@ -100,6 +145,7 @@ function particleProfile(
     id,
     Renderer: ParticleUniverse,
     camera,
+    fogDensity: 0.012,
     post: {
       bloomBias: 0,
       contrastBias: 0.02,
@@ -132,9 +178,10 @@ const singularityCamera: CameraPose = {
 export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
   saturn_ring: {
     id: 'saturn_ring',
-    Renderer: SaturnSystem,
+    Renderer: saturnRenderer.Renderer,
     camera: saturnCamera,
     heroCamera: saturnCamera,
+    fogDensity: 0.012,
     post: {
       bloom: SATURN_BLOOM,
       bloomBias: 0,
@@ -183,9 +230,68 @@ export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
   knot_torus: particleProfile('knot_torus', {
     position: [4.6, 2.4, 11.6], lookAt: [0, 0.15, 0], fov: 39, sway: 0.08, lift: 0.05, depth: 0.07,
   }, { contrastBias: 0.03 }),
-  dna_helix: particleProfile('dna_helix', {
-    position: [4.1, 1.9, 13.2], lookAt: [0, 0.45, 0], fov: 34, sway: 0.06, lift: 0.05, depth: 0.06,
-  }),
+  dna_helix: {
+    id: 'dna_helix',
+    Renderer: dnaRenderer.Renderer,
+    camera: {
+      position: DNA_CAMERA.position,
+      lookAt: DNA_CAMERA.lookAt,
+      fov: DNA_CAMERA.fov,
+      sway: DNA_CAMERA.driftX,
+      lift: DNA_CAMERA.driftY,
+      depth: DNA_CAMERA.driftZ,
+    },
+    heroCamera: {
+      position: DNA_CAMERA.position,
+      lookAt: DNA_CAMERA.lookAt,
+      fov: DNA_CAMERA.fov,
+      sway: DNA_CAMERA.driftX,
+      lift: DNA_CAMERA.driftY,
+      depth: DNA_CAMERA.driftZ,
+    },
+    fogDensity: 0.008,
+    post: {
+      bloom: DNA_BLOOM,
+      bloomBias: 0,
+      contrastBias: 0.055,
+      brightnessBias: -0.024,
+      vignetteBias: 0.055,
+    },
+    atmosphere: {
+      focus: 0.75,
+      count: 180,
+      pulseScale: 0.4,
+      energyBase: 0.035,
+      energyScale: 0.06,
+      turbulenceBase: 0.025,
+      turbulenceScale: 0.04,
+      rotationSpeed: 0.003,
+      rotationTilt: 0.008,
+      verticalDrift: 0.03,
+    },
+    hud: {
+      index: '04',
+      code: 'S-04 / GENETIC LATTICE',
+      title: '双螺旋',
+      titleEn: 'DOUBLE HELIX',
+      particleCount: DNA_COUNTS.total,
+      controlLabel: 'SEQUENCE CONTROL',
+      structureCount: 144,
+      structureLabel: 'BASE PAIRS',
+      diagram: 'dna',
+      description: ['双链骨架携带配对序列', '碱基横梁沿螺旋周期排列', '复制光带由激活位点向两端推进'],
+      interactions: {
+        idle: { cn: '稳定编码', en: 'SEQUENCE STABLE', color: '#8de7ff' },
+        attract: { cn: '握拳收束', en: 'HELIX COMPRESSION', color: '#ffc857' },
+        repel: { cn: '掌心解旋', en: 'STRAND UNZIP', color: '#ff7a6b' },
+        point: { cn: '序列扫描', en: 'LOCUS SCAN', color: '#72e7ff' },
+        duality: { cn: '双手拉伸', en: 'DUAL STRAND CONTROL', color: '#a88bff' },
+        forming_void: { cn: '复制聚能', en: 'REPLICATION CHARGING', color: '#ffc857' },
+        void_core: { cn: '复制锁定', en: 'REPLICATION LOCKED', color: '#f4fbff' },
+        exploding: { cn: '复制推进', en: 'REPLICATION WAVE', color: '#ff7a6b' },
+      },
+    },
+  },
   golden_spiral: particleProfile('golden_spiral', {
     position: [3.1, 2, 12.2], lookAt: [0.2, 0.18, 0], fov: 37, sway: 0.08, lift: 0.04, depth: 0.06,
   }, { bloomBias: -0.18, brightnessBias: -0.02 }),
@@ -197,9 +303,10 @@ export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
   }, { contrastBias: 0.04, brightnessBias: -0.028, vignetteBias: 0.04 }),
   singularity: {
     id: 'singularity',
-    Renderer: SingularitySystem,
+    Renderer: singularityRenderer.Renderer,
     camera: singularityCamera,
     heroCamera: singularityCamera,
+    fogDensity: 0.006,
     post: {
       bloom: SINGULARITY_BLOOM,
       bloomBias: 0,
@@ -246,4 +353,8 @@ export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
 
 export function getSceneProfile(id: ParticleShape): SceneProfile {
   return SCENE_PROFILES[id]
+}
+
+export function preloadSceneRenderer(id: ParticleShape): Promise<void> {
+  return SCENE_PRELOADERS[id]?.() ?? Promise.resolve()
 }

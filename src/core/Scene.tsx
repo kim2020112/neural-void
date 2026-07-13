@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { Background } from './Background'
 import { MouseTracker } from './MouseTracker'
@@ -13,12 +14,16 @@ const initialCamera = getSceneProfile(DEFAULT_PARTICLE_SHAPE).camera
 function ParticleLayer() {
   const particleShape = useAppStore((s) => s.particleShape)
   const Renderer = getSceneProfile(particleShape).Renderer
-  return <Renderer />
+  return (
+    <Suspense fallback={null}>
+      <Renderer />
+    </Suspense>
+  )
 }
 
 export function Scene() {
   const particleShape = useAppStore((state) => state.particleShape)
-  const fogDensity = particleShape === 'singularity' ? 0.006 : 0.012
+  const fogDensity = getSceneProfile(particleShape).fogDensity
 
   return (
     <Canvas
