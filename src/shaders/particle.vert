@@ -507,7 +507,7 @@ void main() {
     float forceOn = smoothstep(0.0, 1.0, uForceStrength);
     vec3 forceField = vec3(0.0);
 
-    if (uForceStrength > 0.01) {
+    if (uForceStrength > 0.01 && uForceType > 0.5) {
       float strength = uForceStrength * lifeBreath;
       if (uForceType < 1.5) {
         forceField += attractForce(energeticPos, uHandPos, strength);
@@ -519,7 +519,9 @@ void main() {
     }
 
     vec3 dualField = uDuality > 0.01 ? dualOrbitForce(energeticPos, uHandPos, uHand2Pos, uDuality * uInteractionPresence) : vec3(0.0);
-    vec3 depthField = depthShear(energeticPos, uDepthBias, uHandPos);
+    vec3 depthField = (uForceType > 0.5 || uDuality > 0.01)
+      ? depthShear(energeticPos, uDepthBias, uHandPos)
+      : vec3(0.0);
     forceField += dualField + depthField;
 
     float flowSuppression = 1.0 - min(1.0, forceOn * forceOn + uFlowWeight * 0.25);

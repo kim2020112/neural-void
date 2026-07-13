@@ -1,35 +1,31 @@
-import { FilesetResolver, GestureRecognizer } from '@mediapipe/tasks-vision'
+import type {
+  GestureRecognizer as MediaPipeGestureRecognizer,
+  GestureRecognizerResult as MediaPipeGestureResult,
+} from '@mediapipe/tasks-vision'
 import { useCallback, useEffect, useRef } from 'react'
 import { useAppStore } from '../store/appStore'
 import type { GestureData, GestureType, InteractionMode, Vec3, VoidCorePhase } from '../store/appStore'
+import {
+  AdaptiveVec3Filter,
+  DUAL_HAND_SPAN,
+  GestureStabilizer,
+  mapGestureName,
+  toWorldSpace,
+} from './gestureEngine'
 
-const WASM_PATH = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm'
+const WASM_PATH = '/wasm'
 const MODEL_PATH =
   'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task'
 
-const SMOOTHING = 0.35
 const CENTER_INDICES = [0, 9]
 const FINGERTIP_INDEX = 8
+const TARGET_INFERENCE_INTERVAL_MS = 1000 / 24
+const HAND_LOSS_GRACE_MS = 120
+const METRICS_WINDOW_MS = 1000
 const VOID_FORM_MS = 820
 const SINGLE_FIST_CHARGE_MS = 2200
 const VOID_ACTIVE_ARM_MS = 160
 const VOID_EXPLOSION_RESET_MS = 4200
-const FORM_SPACING_SOFT_LIMIT = 6.8
-const FORM_SPACING_IDEAL = 3.2
-
-const HYSTERESIS = {
-  activate: 4,
-  release: 10,
-  maxLock: 30,
-}
-
-interface HysteresisState {
-  lockedGesture: GestureType
-  lockCounter: number
-  noneCounter: number
-  candidateGesture: GestureType
-  candidateCounter: number
-}
 
 interface HandSnapshot {
   detected: boolean
@@ -39,6 +35,16 @@ interface HandSnapshot {
   fingertip: Vec3
 }
 
+interface HandRuntime {
+  positionFilter: AdaptiveVec3Filter
+  fingertipFilter: AdaptiveVec3Filter
+  gestureStabilizer: GestureStabilizer
+  lastSeenAt: number
+  lastPosition: Vec3
+  lastFingertip: Vec3
+  lastScore: number
+}
+
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value))
 }
@@ -46,27 +52,6 @@ function clamp01(value: number) {
 function smoothstep(edge0: number, edge1: number, value: number) {
   const t = clamp01((value - edge0) / (edge1 - edge0 || 1))
   return t * t * (3 - 2 * t)
-}
-
-function mapGesture(name: string): GestureType {
-  switch (name) {
-    case 'Closed_Fist':
-      return 'fist'
-    case 'Open_Palm':
-      return 'open_palm'
-    case 'Pointing_Up':
-      return 'point'
-    default:
-      return 'none'
-  }
-}
-
-function toWorldSpace(mpX: number, mpY: number, mpZ: number): Vec3 {
-  return {
-    x: (mpX - 0.5) * 16,
-    y: (0.55 - mpY) * 13 + 1.0,
-    z: (mpZ + 0.05) * 10 - 3,
-  }
 }
 
 function computeHandCenter(landmarks: { x: number; y: number; z: number }[]): Vec3 {
@@ -88,14 +73,6 @@ function computeFingertip(landmarks: { x: number; y: number; z: number }[]): Vec
   return toWorldSpace(tip.x, tip.y, tip.z)
 }
 
-function lerpVec3(current: Vec3, target: Vec3, factor: number): Vec3 {
-  return {
-    x: current.x + (target.x - current.x) * factor,
-    y: current.y + (target.y - current.y) * factor,
-    z: current.z + (target.z - current.z) * factor,
-  }
-}
-
 function distance(a: Vec3, b: Vec3) {
   const dx = a.x - b.x
   const dy = a.y - b.y
@@ -111,52 +88,92 @@ function midpoint(a: Vec3, b: Vec3): Vec3 {
   }
 }
 
-function createHysteresisState(): HysteresisState {
+function createHandRuntime(): HandRuntime {
   return {
-    lockedGesture: 'none',
-    lockCounter: 0,
-    noneCounter: 0,
-    candidateGesture: 'none',
-    candidateCounter: 0,
+    positionFilter: new AdaptiveVec3Filter(),
+    fingertipFilter: new AdaptiveVec3Filter(),
+    gestureStabilizer: new GestureStabilizer(),
+    lastSeenAt: 0,
+    lastPosition: { x: 0, y: 0, z: 0 },
+    lastFingertip: { x: 0, y: 0, z: 0 },
+    lastScore: 0,
   }
 }
 
-function updateHysteresis(state: HysteresisState, rawGesture: GestureType, rawScore: number) {
-  if (rawGesture !== 'none' && rawScore > 0.45) {
-    state.noneCounter = 0
+function resetHandRuntime(runtime: HandRuntime) {
+  runtime.positionFilter.reset()
+  runtime.fingertipFilter.reset()
+  runtime.gestureStabilizer.reset()
+  runtime.lastSeenAt = 0
+  runtime.lastPosition = { x: 0, y: 0, z: 0 }
+  runtime.lastFingertip = { x: 0, y: 0, z: 0 }
+  runtime.lastScore = 0
+}
 
-    if (rawGesture === state.candidateGesture) {
-      state.candidateCounter += 1
-    } else {
-      state.candidateGesture = rawGesture
-      state.candidateCounter = 1
+function orderHandIndices(results: MediaPipeGestureResult, preferredPrimary: string | null) {
+  const indices = results.landmarks.map((_, index) => index)
+  if (indices.length < 2) return indices
+
+  return indices.sort((a, b) => {
+    const handednessA = results.handedness[a]?.[0]?.categoryName ?? ''
+    const handednessB = results.handedness[b]?.[0]?.categoryName ?? ''
+
+    if (preferredPrimary) {
+      const aPreferred = handednessA === preferredPrimary
+      const bPreferred = handednessB === preferredPrimary
+      if (aPreferred !== bPreferred) return aPreferred ? -1 : 1
     }
 
-    if (state.candidateCounter >= HYSTERESIS.activate) {
-      state.lockedGesture = rawGesture
-      state.lockCounter = HYSTERESIS.maxLock
-      state.candidateCounter = 0
+    if (handednessA !== handednessB) {
+      if (handednessA === 'Right') return -1
+      if (handednessB === 'Right') return 1
     }
-  } else {
-    state.candidateCounter = Math.max(0, state.candidateCounter - 1)
-    state.noneCounter += 1
 
-    if (state.noneCounter >= HYSTERESIS.release) {
-      state.lockedGesture = 'none'
-      state.lockCounter = 0
+    const xA = results.landmarks[a]?.[0]?.x ?? 0.5
+    const xB = results.landmarks[b]?.[0]?.x ?? 0.5
+    return xA - xB
+  })
+}
+
+function processHand(
+  results: MediaPipeGestureResult,
+  index: number | undefined,
+  runtime: HandRuntime,
+  timestamp: number,
+): HandSnapshot {
+  if (index === undefined || !results.landmarks[index]) {
+    const stableGesture = runtime.gestureStabilizer.update('none', 0, timestamp)
+    const withinGrace = runtime.lastSeenAt > 0 && timestamp - runtime.lastSeenAt <= HAND_LOSS_GRACE_MS
+
+    return {
+      detected: withinGrace,
+      gesture: withinGrace ? stableGesture.gesture : 'none',
+      score: withinGrace ? runtime.lastScore : 0,
+      position: runtime.lastPosition,
+      fingertip: runtime.lastFingertip,
     }
   }
 
-  if (state.lockCounter > 0) {
-    state.lockCounter -= 1
-    return state.lockedGesture === 'none' ? state.candidateGesture || 'none' : state.lockedGesture
-  }
+  const landmarks = results.landmarks[index]
+  const gesture = results.gestures[index]?.[0]
+  const rawGesture = mapGestureName(gesture?.categoryName ?? 'None')
+  const rawScore = gesture?.score ?? 0
+  const stableGesture = runtime.gestureStabilizer.update(rawGesture, rawScore, timestamp)
+  const position = runtime.positionFilter.update(computeHandCenter(landmarks), timestamp)
+  const fingertip = runtime.fingertipFilter.update(computeFingertip(landmarks), timestamp)
 
-  if (state.lockedGesture !== 'none') {
-    state.lockedGesture = 'none'
-  }
+  runtime.lastSeenAt = timestamp
+  runtime.lastPosition = position
+  runtime.lastFingertip = fingertip
+  runtime.lastScore = stableGesture.score
 
-  return state.lockedGesture
+  return {
+    detected: true,
+    gesture: stableGesture.gesture,
+    score: stableGesture.score,
+    position,
+    fingertip,
+  }
 }
 
 function deriveMode(
@@ -175,136 +192,115 @@ function deriveMode(
   return 'idle'
 }
 
-function buildGestureData(results: {
-  gestures: { categoryName?: string; score?: number }[][]
-  landmarks: { x: number; y: number; z: number }[][]
-}): GestureData {
+function buildGestureData(results: MediaPipeGestureResult, indices: number[]): GestureData {
   return {
-    gestures: results.gestures.map((group) => ({
-      categoryName: group[0]?.categoryName ?? 'None',
-      score: group[0]?.score ?? 0,
-      handedness: 'unknown',
+    gestures: indices.map((index) => ({
+      categoryName: results.gestures[index]?.[0]?.categoryName ?? 'None',
+      score: results.gestures[index]?.[0]?.score ?? 0,
+      handedness: results.handedness[index]?.[0]?.categoryName ?? 'unknown',
     })),
-    landmarks: results.landmarks,
-    handedness: results.gestures.map(() => 'unknown'),
+    landmarks: indices.map((index) => results.landmarks[index]),
+    handedness: indices.map(
+      (index) => results.handedness[index]?.[0]?.categoryName ?? 'unknown',
+    ),
   }
 }
 
 export function useGestureRecognizer() {
   const phase = useAppStore((state) => state.phase)
   const cameraReady = useAppStore((state) => state.cameraReady)
-  const recognizerRef = useRef<GestureRecognizer | null>(null)
+  const recognitionRequested = phase !== 'idle' && cameraReady
+  const recognizerRef = useRef<MediaPipeGestureRecognizer | null>(null)
   const rafRef = useRef(0)
-  const initializedRef = useRef(false)
+  const processFrameRef = useRef<(timestamp: number) => void>(() => undefined)
+  const primaryRuntimeRef = useRef(createHandRuntime())
+  const secondaryRuntimeRef = useRef(createHandRuntime())
+  const lastVideoTimeRef = useRef(-1)
+  const lastInferenceTimestampRef = useRef(0)
+  const metricsWindowStartRef = useRef(0)
+  const metricsFrameCountRef = useRef(0)
+  const inferenceMsRef = useRef(0)
+  const recognizerWarmRef = useRef(false)
+  const primaryHandednessRef = useRef<string | null>(null)
 
-  const smoothHandRef = useRef<Vec3>({ x: 0, y: 0, z: 0 })
-  const smoothFingertipRef = useRef<Vec3>({ x: 0, y: 0, z: 0 })
-  const hysteresisRef = useRef(createHysteresisState())
-
-  const smoothHandRef2 = useRef<Vec3>({ x: 0, y: 0, z: 0 })
-  const smoothFingertipRef2 = useRef<Vec3>({ x: 0, y: 0, z: 0 })
-  const hysteresisRef2 = useRef(createHysteresisState())
-
-  const frameCountRef = useRef(0)
   const fistHoldStartRef = useRef(0)
   const voidTriggeredRef = useRef(false)
   const formingStartRef = useRef(0)
   const activeStartRef = useRef(0)
   const explosionStartRef = useRef(0)
 
-  const processFrame = useCallback(() => {
+  const processFrame = useCallback((frameTimestamp: number) => {
     const video = (window as unknown as Record<string, unknown>).__videoElement as HTMLVideoElement | undefined
     const recognizer = recognizerRef.current
+    const scheduleNextFrame = () => {
+      rafRef.current = requestAnimationFrame((nextTimestamp) => {
+        processFrameRef.current(nextTimestamp)
+      })
+    }
 
     if (!video || !recognizer || video.readyState < 2) {
-      rafRef.current = requestAnimationFrame(processFrame)
+      scheduleNextFrame()
       return
     }
 
-    const results = recognizer.recognizeForVideo(video, performance.now())
+    if (
+      video.currentTime === lastVideoTimeRef.current ||
+      frameTimestamp - lastInferenceTimestampRef.current < TARGET_INFERENCE_INTERVAL_MS
+    ) {
+      scheduleNextFrame()
+      return
+    }
+
+    lastVideoTimeRef.current = video.currentTime
+    lastInferenceTimestampRef.current = frameTimestamp
+
+    const inferenceStart = performance.now()
+    const results = recognizer.recognizeForVideo(video, frameTimestamp)
     const now = performance.now()
+    const inferenceMs = now - inferenceStart
     const store = useAppStore.getState()
-    frameCountRef.current += 1
-
-    store.setGestureData(buildGestureData(results))
-
-    const primary: HandSnapshot = {
-      detected: false,
-      gesture: 'none',
-      score: 0,
-      position: { x: 0, y: 0, z: 0 },
-      fingertip: { x: 0, y: 0, z: 0 },
+    inferenceMsRef.current =
+      inferenceMsRef.current === 0
+        ? inferenceMs
+        : inferenceMsRef.current + (inferenceMs - inferenceMsRef.current) * 0.2
+    metricsFrameCountRef.current += 1
+    if (metricsWindowStartRef.current === 0) {
+      metricsWindowStartRef.current = now
+    } else if (now - metricsWindowStartRef.current >= METRICS_WINDOW_MS) {
+      const elapsed = now - metricsWindowStartRef.current
+      store.setTrackingMetrics({
+        inferenceFps: (metricsFrameCountRef.current * 1000) / elapsed,
+        inferenceMs: inferenceMsRef.current,
+      })
+      metricsWindowStartRef.current = now
+      metricsFrameCountRef.current = 0
     }
 
-    const secondary: HandSnapshot = {
-      detected: false,
-      gesture: 'none',
-      score: 0,
-      position: { x: 0, y: 0, z: 0 },
-      fingertip: { x: 0, y: 0, z: 0 },
-    }
-
-    const landmarks0 = results.landmarks[0]
-    if (landmarks0) {
-      const gesture = results.gestures[0]?.[0]
-      const rawGesture = mapGesture(gesture?.categoryName ?? 'None')
-      const rawScore = gesture?.score ?? 0
-
-      const targetHand = computeHandCenter(landmarks0)
-      const targetFingertip = computeFingertip(landmarks0)
-
-      smoothHandRef.current = lerpVec3(smoothHandRef.current, targetHand, SMOOTHING)
-      smoothFingertipRef.current = lerpVec3(smoothFingertipRef.current, targetFingertip, SMOOTHING)
-
-      primary.detected = true
-      primary.position = smoothHandRef.current
-      primary.fingertip = smoothFingertipRef.current
-      primary.gesture = updateHysteresis(hysteresisRef.current, rawGesture, rawScore)
-      primary.score = rawScore
-
-      store.setHandPosition(primary.position)
-      store.setFingertipPosition(primary.fingertip)
-      store.setHandDetected(true)
-      store.setGestureType(primary.gesture, primary.score)
-    } else {
-      hysteresisRef.current.noneCounter += 1
-      if (hysteresisRef.current.noneCounter >= HYSTERESIS.release) {
-        hysteresisRef.current = createHysteresisState()
+    if (!recognizerWarmRef.current) {
+      recognizerWarmRef.current = true
+      store.setTrackingStatus('ready')
+      if (store.phase === 'loading') {
+        store.setPhase('active')
       }
-      store.setHandDetected(false)
-      store.setGestureType('none', 0)
     }
 
-    const landmarks1 = results.landmarks[1]
-    if (landmarks1) {
-      const gesture = results.gestures[1]?.[0]
-      const rawGesture = mapGesture(gesture?.categoryName ?? 'None')
-      const rawScore = gesture?.score ?? 0
-
-      const targetHand = computeHandCenter(landmarks1)
-      const targetFingertip = computeFingertip(landmarks1)
-
-      smoothHandRef2.current = lerpVec3(smoothHandRef2.current, targetHand, SMOOTHING)
-      smoothFingertipRef2.current = lerpVec3(smoothFingertipRef2.current, targetFingertip, SMOOTHING)
-
-      secondary.detected = true
-      secondary.position = smoothHandRef2.current
-      secondary.fingertip = smoothFingertipRef2.current
-      secondary.gesture = updateHysteresis(hysteresisRef2.current, rawGesture, rawScore)
-      secondary.score = rawScore
-
-      store.setHand2Position(secondary.position)
-      store.setHand2FingertipPosition(secondary.fingertip)
-      store.setHand2Detected(true)
-      store.setHand2GestureType(secondary.gesture, secondary.score)
-    } else {
-      hysteresisRef2.current.noneCounter += 1
-      if (hysteresisRef2.current.noneCounter >= HYSTERESIS.release) {
-        hysteresisRef2.current = createHysteresisState()
-      }
-      store.setHand2Detected(false)
-      store.setHand2GestureType('none', 0)
+    const orderedIndices = orderHandIndices(results, primaryHandednessRef.current)
+    if (primaryHandednessRef.current === null && orderedIndices[0] !== undefined) {
+      primaryHandednessRef.current =
+        results.handedness[orderedIndices[0]]?.[0]?.categoryName ?? null
     }
+    const primary = processHand(
+      results,
+      orderedIndices[0],
+      primaryRuntimeRef.current,
+      now,
+    )
+    const secondary = processHand(
+      results,
+      orderedIndices[1],
+      secondaryRuntimeRef.current,
+      now,
+    )
 
     const bothFists =
       primary.detected &&
@@ -335,10 +331,10 @@ export function useGestureRecognizer() {
       singleFist && fistHoldStartRef.current > 0
         ? clamp01((now - fistHoldStartRef.current) / SINGLE_FIST_CHARGE_MS)
         : 0
-    const fistDistance = bothFists ? distance(primary.position, secondary.position) : FORM_SPACING_SOFT_LIMIT
+    const fistDistance = bothFists ? distance(primary.position, secondary.position) : DUAL_HAND_SPAN.open
     const formationCompression = bothFists
       ? clamp01(
-          (FORM_SPACING_SOFT_LIMIT - fistDistance) / (FORM_SPACING_SOFT_LIMIT - FORM_SPACING_IDEAL),
+          (DUAL_HAND_SPAN.open - fistDistance) / (DUAL_HAND_SPAN.open - DUAL_HAND_SPAN.compressed),
         )
       : 0
     const formationStability = bothFists
@@ -415,7 +411,7 @@ export function useGestureRecognizer() {
         store.setVoidCorePhase('exploding')
         store.setVoidCoreStrength(1)
         store.setVoidExplosionTime(now)
-        rafRef.current = requestAnimationFrame(processFrame)
+        scheduleNextFrame()
         return
       }
 
@@ -495,50 +491,88 @@ export function useGestureRecognizer() {
               ? 0.86
               : interactionMode === 'forming_void' || interactionMode === 'void_core'
                 ? 0.92
-                : 0.18
+                : 0
 
-    const forceStrength = clamp01(presence * modeForceBase + depth * 0.14 + orbit * 0.12)
-    store.setForceStrength(forceStrength)
-    store.setInteractionState({
-      mode: interactionMode,
-      presence,
-      duality,
-      depth,
-      focus,
-      orbit,
+    const hasDirectGesture = primary.detected && primary.gesture !== 'none'
+    const forceStrength =
+      resolvedVoidPhase !== 'idle'
+        ? clamp01(presence * modeForceBase + depth * 0.14 + orbit * 0.12)
+        : interactionMode === 'duality'
+          ? clamp01(presence * 0.3 + orbit * 0.24)
+          : hasDirectGesture
+            ? clamp01(presence * modeForceBase + depth * 0.14)
+            : 0
+
+    store.setHandTrackingFrame({
+      gestureData: buildGestureData(results, orderedIndices),
+      handPosition: primary.position,
+      fingertipPosition: primary.fingertip,
+      gestureType: primary.gesture,
+      gestureScore: primary.score,
+      handDetected: primary.detected,
+      hand2Position: secondary.position,
+      hand2FingertipPosition: secondary.fingertip,
+      hand2GestureType: secondary.gesture,
+      hand2GestureScore: secondary.score,
+      hand2Detected: secondary.detected,
+      forceStrength,
+      interactionState: {
+        mode: interactionMode,
+        presence,
+        duality,
+        depth,
+        focus,
+        orbit,
+      },
     })
 
-    if (frameCountRef.current % 90 === 1) {
-      const h0Raw = results.gestures[0]?.[0]?.categoryName ?? '-'
-      const h1Raw = results.gestures[1]?.[0]?.categoryName ?? '-'
-      console.log(
-        `[NeuralVoid] frame=${frameCountRef.current} ` +
-          `H0=${h0Raw}→${primary.gesture} H1=${h1Raw}→${secondary.gesture} ` +
-          `mode=${interactionMode} void=${resolvedVoidPhase}`,
-      )
-    }
-
-    rafRef.current = requestAnimationFrame(processFrame)
+    scheduleNextFrame()
   }, [])
 
   useEffect(() => {
-    if (phase !== 'active' || !cameraReady || initializedRef.current) return
+    processFrameRef.current = processFrame
+  }, [processFrame])
+
+  useEffect(() => {
+    if (!recognitionRequested) return
 
     let cancelled = false
+    const primaryRuntime = primaryRuntimeRef.current
+    const secondaryRuntime = secondaryRuntimeRef.current
 
     const init = async () => {
       try {
+        useAppStore.getState().setTrackingStatus('loading_model')
+        const { FilesetResolver, GestureRecognizer } = await import('@mediapipe/tasks-vision')
+        if (cancelled) return
         const vision = await FilesetResolver.forVisionTasks(WASM_PATH)
         if (cancelled) return
 
-        const recognizer = await GestureRecognizer.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MODEL_PATH,
-            delegate: 'GPU',
-          },
-          numHands: 2,
-          runningMode: 'VIDEO',
-        })
+        let delegate: 'gpu' | 'cpu' = 'gpu'
+        let recognizer: MediaPipeGestureRecognizer
+
+        try {
+          recognizer = await GestureRecognizer.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: MODEL_PATH,
+              delegate: 'GPU',
+            },
+            numHands: 2,
+            runningMode: 'VIDEO',
+          })
+        } catch (gpuError) {
+          if (cancelled) return
+          console.warn('[NeuralVoid] GPU gesture delegate unavailable, falling back to CPU.', gpuError)
+          delegate = 'cpu'
+          recognizer = await GestureRecognizer.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: MODEL_PATH,
+              delegate: 'CPU',
+            },
+            numHands: 2,
+            runningMode: 'VIDEO',
+          })
+        }
 
         if (cancelled) {
           recognizer.close()
@@ -546,11 +580,30 @@ export function useGestureRecognizer() {
         }
 
         recognizerRef.current = recognizer
-        initializedRef.current = true
-        frameCountRef.current = 0
-        rafRef.current = requestAnimationFrame(processFrame)
+        recognizerWarmRef.current = false
+        lastVideoTimeRef.current = -1
+        lastInferenceTimestampRef.current = 0
+        metricsWindowStartRef.current = 0
+        metricsFrameCountRef.current = 0
+        inferenceMsRef.current = 0
+        useAppStore.getState().setTrackingMetrics({
+          inferenceFps: 0,
+          inferenceMs: 0,
+          delegate,
+        })
+        useAppStore.getState().setTrackingStatus('warming_up')
+        rafRef.current = requestAnimationFrame((timestamp) => {
+          processFrameRef.current(timestamp)
+        })
       } catch (error) {
         console.error('[NeuralVoid] GestureRecognizer init failed:', error)
+        const store = useAppStore.getState()
+        store.setTrackingStatus('error', '手势模型加载失败，请检查网络后重试。')
+        if (store.phase === 'loading') {
+          store.setPhase('idle')
+        } else {
+          store.setCameraEnabled(false)
+        }
       }
     }
 
@@ -563,13 +616,20 @@ export function useGestureRecognizer() {
         recognizerRef.current.close()
         recognizerRef.current = null
       }
-      initializedRef.current = false
-      frameCountRef.current = 0
+      recognizerWarmRef.current = false
+      lastVideoTimeRef.current = -1
+      lastInferenceTimestampRef.current = 0
+      metricsWindowStartRef.current = 0
+      metricsFrameCountRef.current = 0
+      inferenceMsRef.current = 0
+      primaryHandednessRef.current = null
+      resetHandRuntime(primaryRuntime)
+      resetHandRuntime(secondaryRuntime)
       fistHoldStartRef.current = 0
       voidTriggeredRef.current = false
       formingStartRef.current = 0
       activeStartRef.current = 0
       explosionStartRef.current = 0
     }
-  }, [cameraReady, phase, processFrame])
+  }, [recognitionRequested])
 }

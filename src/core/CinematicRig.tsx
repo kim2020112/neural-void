@@ -1,86 +1,11 @@
+/* eslint-disable react-hooks/immutability -- R3F camera objects are intentionally mutated inside useFrame. */
 import { useFrame, useThree } from '@react-three/fiber'
 import { useRef } from 'react'
 import * as THREE from 'three'
-import type { ParticleShape } from '../particles/shapes/types'
+import { getSceneProfile } from '../scenes/sceneProfiles'
 import { useAppStore } from '../store/appStore'
 
 const CAMERA_FOCUS_BASE = new THREE.Vector3(0, 0.72, 0)
-
-interface GalleryPose {
-  position: readonly [number, number, number]
-  lookAt: readonly [number, number, number]
-  fov: number
-  sway: number
-  lift: number
-  depth: number
-}
-
-const GALLERY_POSES: Record<ParticleShape, GalleryPose> = {
-  saturn_ring: {
-    position: [3.9, 2.2, 10.9],
-    lookAt: [0, 0.18, 0],
-    fov: 38,
-    sway: 0.1,
-    lift: 0.05,
-    depth: 0.08,
-  },
-  quantum_sphere: {
-    position: [1.8, 2.0, 12.1],
-    lookAt: [0, 0.52, 0],
-    fov: 40,
-    sway: 0.08,
-    lift: 0.06,
-    depth: 0.08,
-  },
-  knot_torus: {
-    position: [4.6, 2.4, 11.6],
-    lookAt: [0, 0.15, 0],
-    fov: 39,
-    sway: 0.08,
-    lift: 0.05,
-    depth: 0.07,
-  },
-  dna_helix: {
-    position: [4.1, 1.9, 13.2],
-    lookAt: [0, 0.45, 0],
-    fov: 34,
-    sway: 0.06,
-    lift: 0.05,
-    depth: 0.06,
-  },
-  golden_spiral: {
-    position: [3.1, 2.0, 12.2],
-    lookAt: [0.2, 0.18, 0],
-    fov: 37,
-    sway: 0.08,
-    lift: 0.04,
-    depth: 0.06,
-  },
-  hypercube: {
-    position: [4.8, 3.1, 13.4],
-    lookAt: [0, 0.3, 0],
-    fov: 33,
-    sway: 0.06,
-    lift: 0.04,
-    depth: 0.05,
-  },
-  galaxy: {
-    position: [2.7, 3.0, 14.6],
-    lookAt: [0, 0.28, 0],
-    fov: 32,
-    sway: 0.08,
-    lift: 0.05,
-    depth: 0.08,
-  },
-  singularity: {
-    position: [2.4, 2.5, 10.6],
-    lookAt: [0, 0.2, 0],
-    fov: 36,
-    sway: 0.06,
-    lift: 0.04,
-    depth: 0.06,
-  },
-}
 
 export function CinematicRig() {
   const { camera } = useThree()
@@ -102,9 +27,38 @@ export function CinematicRig() {
     const formingWeight = voidCorePhase === 'forming' ? Math.pow(voidCoreStrength, 1.3) : 0
     const activeWeight = voidCorePhase === 'active' ? Math.pow(voidCoreStrength, 0.85) : 0
     const explosionWeight = voidCorePhase === 'exploding' ? Math.pow(voidCoreStrength, 0.62) : 0
+    const profile = getSceneProfile(particleShape)
+    const heroCamera = profile.heroCamera
+
+    // Hero scenes keep a stable composition and only use subtle idle drift.
+    if (heroCamera && !galleryMode) {
+      const t = state.clock.elapsedTime
+      desiredPosition.current.set(
+        heroCamera.position[0] + Math.sin(t * 0.11) * heroCamera.sway,
+        heroCamera.position[1] + Math.sin(t * 0.09 + 1.1) * heroCamera.lift,
+        heroCamera.position[2] + Math.cos(t * 0.08 + 0.4) * heroCamera.depth,
+      )
+      desiredLookAt.current.set(
+        heroCamera.lookAt[0] + Math.sin(t * 0.07) * 0.02,
+        heroCamera.lookAt[1] + Math.sin(t * 0.1 + 0.6) * 0.015,
+        heroCamera.lookAt[2],
+      )
+
+      camera.position.lerp(desiredPosition.current, 0.06)
+      camera.lookAt(desiredLookAt.current)
+
+      if ('fov' in camera) {
+        const nextFov = THREE.MathUtils.lerp(camera.fov, heroCamera.fov, 0.06)
+        if (Math.abs(nextFov - camera.fov) > 0.001) {
+          camera.fov = nextFov
+          camera.updateProjectionMatrix()
+        }
+      }
+      return
+    }
 
     if (galleryMode) {
-      const pose = GALLERY_POSES[particleShape]
+      const pose = profile.camera
       const motionTime = state.clock.elapsedTime
       const microScale = 1 - activeWeight * 0.25 - explosionWeight * 0.18
 
@@ -154,45 +108,33 @@ export function CinematicRig() {
       cinematicState.transition * 0.14 +
       activeWeight * 0.12 -
       explosionWeight * 0.08
-    const saturnHero = particleShape === 'saturn_ring'
-    const saturnOrbit = state.clock.elapsedTime * 0.024 + 0.62
-    const depthDrift = Math.cos(state.clock.elapsedTime * 0.14 + 1.4) * (saturnHero ? 0.42 : 0.92 + cinematicState.drift * 0.22)
+    const depthDrift = Math.cos(state.clock.elapsedTime * 0.14 + 1.4) * (0.92 + cinematicState.drift * 0.22)
     const radius =
-      (saturnHero ? 9.6 : 11.85) -
-      cinematicState.zoom * (saturnHero ? 0.92 : 1.12) -
-      cinematicState.energy * (saturnHero ? 0.48 : 0.62) -
-      cinematicState.transition * (saturnHero ? 0.88 : 1.05) -
-      formingWeight * (saturnHero ? 1.45 : 1.8) -
-      activeWeight * (saturnHero ? 0.72 : 0.95) +
-      explosionWeight * (saturnHero ? 1.05 : 1.2)
+      11.85 -
+      cinematicState.zoom * 1.12 -
+      cinematicState.energy * 0.62 -
+      cinematicState.transition * 1.05 -
+      formingWeight * 1.8 -
+      activeWeight * 0.95 +
+      explosionWeight * 1.2
 
     desiredPosition.current.set(
-      saturnHero
-        ? Math.cos(saturnOrbit) * 4.4 + anchor.x * 0.34
-        : Math.cos(orbitAngle) * (1.85 + cinematicState.drift * 0.34 + activeWeight * 0.12) +
-            sideDrift +
-            anchor.x * 0.74,
-      saturnHero
-        ? 0.38 + verticalBreath * 0.36 + anchor.y * 0.2
-        : 1.16 + verticalBreath + anchor.y * 0.46 - formingWeight * 0.12,
-      saturnHero
-        ? 8.25 + Math.sin(saturnOrbit) * 1.6 + depthDrift + anchor.z * 0.24
-        : radius + depthDrift + anchor.z * 0.58,
+      Math.cos(orbitAngle) * (1.85 + cinematicState.drift * 0.34 + activeWeight * 0.12) +
+        sideDrift +
+        anchor.x * 0.74,
+      1.16 + verticalBreath + anchor.y * 0.46 - formingWeight * 0.12,
+      radius + depthDrift + anchor.z * 0.58,
     )
 
     desiredLookAt.current.copy(CAMERA_FOCUS_BASE)
-    desiredLookAt.current.x += saturnHero ? anchor.x * 0.42 : anchor.x * (1.38 + formingWeight * 0.22)
+    desiredLookAt.current.x += anchor.x * (1.38 + formingWeight * 0.22)
     desiredLookAt.current.y +=
-      saturnHero
-        ? -0.16 + cinematicState.breath * 0.04 + anchor.y * 0.22
-        : cinematicState.breath * 0.16 +
-            anchor.y * 0.92 +
-            activeWeight * 0.16 +
-            cinematicState.shock * 0.1 -
-            cinematicState.transition * 0.04
-    desiredLookAt.current.z += saturnHero
-      ? anchor.z * 0.18
-      : anchor.z * 0.82 - cinematicState.transition * 0.34 - explosionWeight * 0.22
+      cinematicState.breath * 0.16 +
+      anchor.y * 0.92 +
+      activeWeight * 0.16 +
+      cinematicState.shock * 0.1 -
+      cinematicState.transition * 0.04
+    desiredLookAt.current.z += anchor.z * 0.82 - cinematicState.transition * 0.34 - explosionWeight * 0.22
 
     camera.position.lerp(
       desiredPosition.current,
@@ -201,14 +143,13 @@ export function CinematicRig() {
     camera.lookAt(desiredLookAt.current)
 
     if ('fov' in camera) {
-      const saturnHero = particleShape === 'saturn_ring'
       const targetFov =
-        (saturnHero ? 24 : 32) -
-        cinematicState.energy * (saturnHero ? 0.72 : 1.4) -
-        cinematicState.transition * (saturnHero ? 0.52 : 1.2) -
-        formingWeight * (saturnHero ? 0.52 : 1.2) -
-        activeWeight * (saturnHero ? 0.3 : 0.6) +
-        explosionWeight * (saturnHero ? 0.4 : 0.8)
+        32 -
+        cinematicState.energy * 1.4 -
+        cinematicState.transition * 1.2 -
+        formingWeight * 1.2 -
+        activeWeight * 0.6 +
+        explosionWeight * 0.8
       const nextFov = THREE.MathUtils.lerp(camera.fov, targetFov, 0.03)
       if (Math.abs(nextFov - camera.fov) > 0.001) {
         camera.fov = nextFov

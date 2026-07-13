@@ -3,6 +3,7 @@ varying vec3 vColor;
 
 void main() {
   float d = length(gl_PointCoord - 0.5) * 2.0;
+  if (d > 1.0) discard;
   float core = exp(-d * 4.0);
   float glow = exp(-d * 1.5) * 0.55;
   float feather = exp(-d * 0.45) * 0.15;

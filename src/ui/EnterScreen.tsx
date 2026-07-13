@@ -1,48 +1,56 @@
 import { useAppStore } from '../store/appStore'
 
 const GESTURE_GUIDE = [
-  { title: 'FIST', text: '压缩星尘，建立引力抓取。' },
-  { title: 'OPEN PALM', text: '释放冲击波，打散或引爆核心。' },
-  { title: 'POINT', text: '聚焦能量束，精确雕刻结构。' },
-  { title: 'DUAL FIST', text: '双手汇聚，诞生新的宇宙核心。' },
+  { title: '握拳', text: '将粒子拉向掌心，形成聚拢效果。' },
+  { title: '张开手掌', text: '向外推开粒子，产生扩散波。' },
+  { title: '伸出食指', text: '移动指尖，牵引并塑造粒子流。' },
+  { title: '双手握拳', text: '汇聚双手之间的粒子，形成高能聚合体。' },
 ]
 
 export function EnterScreen() {
   const phase = useAppStore((state) => state.phase)
-  const cameraReady = useAppStore((state) => state.cameraReady)
+  const trackingStatus = useAppStore((state) => state.trackingStatus)
+  const trackingError = useAppStore((state) => state.trackingError)
   const setPhase = useAppStore((state) => state.setPhase)
   const setCameraEnabled = useAppStore((state) => state.setCameraEnabled)
 
-  const handleEnter = async () => {
-    try {
-      setPhase('loading')
-      setCameraEnabled(true)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: 'user' },
-      })
-      ;(window as unknown as Record<string, unknown>).__cameraStream = stream
-      useAppStore.getState().setCameraReady(true)
-      setPhase('active')
-    } catch (error) {
-      console.error('Camera access denied:', error)
-      setPhase('idle')
-    }
+  const handleEnter = () => {
+    if (phase === 'loading') return
+    setCameraEnabled(true)
+    setPhase('loading')
   }
+
+  const loadingLabel =
+    trackingStatus === 'requesting_camera'
+      ? '正在连接摄像头'
+      : trackingStatus === 'loading_model'
+        ? '正在加载手势模型'
+        : trackingStatus === 'warming_up'
+          ? '正在校准输入'
+          : '正在进入体验'
+  const isLoading = phase === 'loading'
 
   return (
     <div style={styles.overlay}>
       <div style={styles.backGlow} />
       <div style={styles.container}>
         <div style={styles.hero}>
-          <div style={styles.eyebrow}>AI COSMIC CORE SIMULATOR</div>
-          <h1 style={styles.title}>NEURAL VOID</h1>
+          <div style={styles.eyebrow}>实时手势粒子实验</div>
+          <h1 style={styles.title}>星尘引擎</h1>
           <p style={styles.subtitle}>
-            让你的双手驱动一个会呼吸、会聚能、会爆发、会重生的宇宙核心。
+            用双手操控星尘：聚拢、扩散、牵引，实时生成不断变化的宇宙结构。
           </p>
-          <button style={styles.button} onClick={handleEnter}>
-            {phase === 'loading' ? 'SYNCING CAMERA' : cameraReady ? 'ENTERING' : 'OPEN THE GATE'}
+          <button
+            type="button"
+            style={{ ...styles.button, ...(isLoading ? styles.buttonDisabled : {}) }}
+            onClick={handleEnter}
+            disabled={isLoading}
+          >
+            {isLoading ? loadingLabel : '进入体验'}
           </button>
-          <div style={styles.hint}>需要摄像头权限以启用实时手势识别与深度反馈。</div>
+          <div style={{ ...styles.hint, ...(trackingError ? styles.errorHint : {}) }}>
+            {trackingError ?? '需要摄像头权限，仅用于本机实时手势识别。'}
+          </div>
         </div>
 
         <div style={styles.guideGrid}>
@@ -105,7 +113,7 @@ const styles: Record<string, React.CSSProperties> = {
     margin: '18px 0 14px',
     fontSize: 'clamp(40px, 7vw, 92px)',
     lineHeight: 0.94,
-    letterSpacing: '0.12em',
+    letterSpacing: '0.08em',
     color: '#f5f9ff',
     textShadow: '0 0 30px rgba(125,224,255,0.25)',
   },
@@ -128,11 +136,18 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     boxShadow: '0 0 32px rgba(125,224,255,0.16)',
   },
+  buttonDisabled: {
+    cursor: 'wait',
+    opacity: 0.68,
+  },
   hint: {
     marginTop: 14,
     color: 'rgba(214, 225, 247, 0.5)',
     fontSize: 12,
     letterSpacing: '0.08em',
+  },
+  errorHint: {
+    color: 'rgba(255, 190, 132, 0.86)',
   },
   guideGrid: {
     display: 'grid',

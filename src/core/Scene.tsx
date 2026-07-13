@@ -1,27 +1,37 @@
 import { Canvas } from '@react-three/fiber'
 import { Background } from './Background'
-import { ParticleUniverse } from '../particles/ParticleUniverse'
 import { MouseTracker } from './MouseTracker'
-import { HandCursor } from './HandCursor'
-import { ReferenceRing } from './ReferenceRing'
 import { CinematicRig } from './CinematicRig'
 import { SpaceAtmosphere } from './SpaceAtmosphere'
 import { PostProcessingRig } from './PostProcessingRig'
+import { useAppStore } from '../store/appStore'
+import { getSceneProfile } from '../scenes/sceneProfiles'
+import { DEFAULT_PARTICLE_SHAPE } from '../particles/shapes/catalog'
+
+const initialCamera = getSceneProfile(DEFAULT_PARTICLE_SHAPE).camera
+
+function ParticleLayer() {
+  const particleShape = useAppStore((s) => s.particleShape)
+  const Renderer = getSceneProfile(particleShape).Renderer
+  return <Renderer />
+}
 
 export function Scene() {
+  const particleShape = useAppStore((state) => state.particleShape)
+  const fogDensity = particleShape === 'singularity' ? 0.006 : 0.012
+
   return (
     <Canvas
-      camera={{ position: [0, 1.6, 14], fov: 60, near: 0.1, far: 120 }}
-      gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
-      dpr={[1, 2]}
+      camera={{ position: initialCamera.position, fov: initialCamera.fov, near: 0.1, far: 120 }}
+      gl={{ antialias: false, alpha: false, powerPreference: 'high-performance' }}
+      dpr={[1, 1.25]}
       style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh' }}
     >
-      <fogExp2 attach="fog" args={['#04060d', 0.018]} />
+      <color attach="background" args={['#02050D']} />
+      <fogExp2 attach="fog" args={['#02050D', fogDensity]} />
       <Background />
       <SpaceAtmosphere />
-      <ParticleUniverse />
-      <HandCursor />
-      <ReferenceRing />
+      <ParticleLayer />
       <MouseTracker />
       <CinematicRig />
       <PostProcessingRig />

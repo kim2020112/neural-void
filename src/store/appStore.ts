@@ -5,6 +5,15 @@ import type { ParticleShape } from '../particles/shapes/types'
 export type AppPhase = 'idle' | 'loading' | 'active'
 export type GestureType = 'none' | 'fist' | 'open_palm' | 'point'
 export type VoidCorePhase = 'idle' | 'forming' | 'active' | 'exploding'
+export type TrackingStatus =
+  | 'idle'
+  | 'requesting_camera'
+  | 'camera_ready'
+  | 'loading_model'
+  | 'warming_up'
+  | 'ready'
+  | 'error'
+export type TrackingDelegate = 'none' | 'gpu' | 'cpu'
 export type InteractionMode =
   | 'idle'
   | 'attract'
@@ -61,10 +70,35 @@ export interface GestureData {
   handedness: string[]
 }
 
+export interface TrackingMetrics {
+  inferenceFps: number
+  inferenceMs: number
+  delegate: TrackingDelegate
+}
+
+export interface HandTrackingFrame {
+  gestureData: GestureData
+  handPosition: Vec3
+  fingertipPosition: Vec3
+  gestureType: GestureType
+  gestureScore: number
+  handDetected: boolean
+  hand2Position: Vec3
+  hand2FingertipPosition: Vec3
+  hand2GestureType: GestureType
+  hand2GestureScore: number
+  hand2Detected: boolean
+  forceStrength: number
+  interactionState: InteractionState
+}
+
 interface AppState {
   phase: AppPhase
   cameraReady: boolean
   cameraEnabled: boolean
+  trackingStatus: TrackingStatus
+  trackingError: string | null
+  trackingMetrics: TrackingMetrics
   galleryMode: boolean
   gestureData: GestureData
   mouse: { x: number; y: number }
@@ -95,20 +129,12 @@ interface AppState {
   setPhase: (phase: AppPhase) => void
   setCameraReady: (ready: boolean) => void
   setCameraEnabled: (enabled: boolean) => void
+  setTrackingStatus: (status: TrackingStatus, error?: string | null) => void
+  setTrackingMetrics: (metrics: Partial<TrackingMetrics>) => void
+  setHandTrackingFrame: (frame: HandTrackingFrame) => void
   setGalleryMode: (enabled: boolean) => void
-  setGestureData: (data: GestureData) => void
   setMouse: (x: number, y: number) => void
   setCinematicState: (state: Partial<CinematicState>) => void
-  setInteractionState: (state: Partial<InteractionState>) => void
-  setHandPosition: (pos: Vec3) => void
-  setFingertipPosition: (pos: Vec3) => void
-  setGestureType: (type: GestureType, score: number) => void
-  setForceStrength: (strength: number) => void
-  setHandDetected: (detected: boolean) => void
-  setHand2Position: (pos: Vec3) => void
-  setHand2FingertipPosition: (pos: Vec3) => void
-  setHand2GestureType: (type: GestureType, score: number) => void
-  setHand2Detected: (detected: boolean) => void
   setVoidCorePhase: (phase: VoidCorePhase) => void
   setVoidCenter: (pos: Vec3) => void
   setVoidCoreStrength: (s: number) => void
@@ -143,6 +169,9 @@ export const useAppStore = create<AppState>((set) => ({
   phase: 'idle',
   cameraReady: false,
   cameraEnabled: true,
+  trackingStatus: 'idle',
+  trackingError: null,
+  trackingMetrics: { inferenceFps: 0, inferenceMs: 0, delegate: 'none' },
   galleryMode: false,
   gestureData: { gestures: [], landmarks: [], handedness: [] },
   mouse: { x: 0, y: 0 },
@@ -172,22 +201,15 @@ export const useAppStore = create<AppState>((set) => ({
   setPhase: (phase) => set({ phase }),
   setCameraReady: (ready) => set({ cameraReady: ready }),
   setCameraEnabled: (cameraEnabled) => set({ cameraEnabled }),
+  setTrackingStatus: (trackingStatus, trackingError = null) =>
+    set({ trackingStatus, trackingError }),
+  setTrackingMetrics: (trackingMetrics) =>
+    set((state) => ({ trackingMetrics: { ...state.trackingMetrics, ...trackingMetrics } })),
+  setHandTrackingFrame: (frame) => set(frame),
   setGalleryMode: (galleryMode) => set({ galleryMode }),
-  setGestureData: (data) => set({ gestureData: data }),
   setMouse: (x, y) => set({ mouse: { x, y } }),
   setCinematicState: (cinematicState) =>
     set((state) => ({ cinematicState: { ...state.cinematicState, ...cinematicState } })),
-  setInteractionState: (interactionState) =>
-    set((state) => ({ interactionState: { ...state.interactionState, ...interactionState } })),
-  setHandPosition: (pos) => set({ handPosition: pos }),
-  setFingertipPosition: (pos) => set({ fingertipPosition: pos }),
-  setGestureType: (type, score) => set({ gestureType: type, gestureScore: score }),
-  setForceStrength: (forceStrength) => set({ forceStrength }),
-  setHandDetected: (detected) => set({ handDetected: detected }),
-  setHand2Position: (pos) => set({ hand2Position: pos }),
-  setHand2FingertipPosition: (pos) => set({ hand2FingertipPosition: pos }),
-  setHand2GestureType: (type, score) => set({ hand2GestureType: type, hand2GestureScore: score }),
-  setHand2Detected: (detected) => set({ hand2Detected: detected }),
   setVoidCorePhase: (phase) => set({ voidCorePhase: phase }),
   setVoidCenter: (pos) => set({ voidCenter: pos }),
   setVoidCoreStrength: (voidCoreStrength) => set({ voidCoreStrength }),

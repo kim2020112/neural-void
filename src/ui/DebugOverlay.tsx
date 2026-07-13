@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import { SHAPE_OPTIONS } from '../particles/shapes/catalog'
-import type { GestureType, InteractionMode } from '../store/appStore'
+import type { GestureType, InteractionMode, TrackingStatus } from '../store/appStore'
 
 function Meter({ label, value, tint }: { label: string; value: number; tint: string }) {
   return (
@@ -48,30 +48,62 @@ function CameraGlyph({ active }: { active: boolean }) {
 }
 
 function gestureLabel(gesture: GestureType) {
-  if (gesture === 'open_palm') return '张掌'
-  if (gesture === 'point') return '指向'
-  if (gesture === 'fist') return '拳握'
-  return '无手势'
+  if (gesture === 'open_palm') return '张开手掌'
+  if (gesture === 'point') return '伸出食指'
+  if (gesture === 'fist') return '握拳'
+  return '等待手势'
 }
 
 function modeLabel(mode: InteractionMode) {
   switch (mode) {
     case 'attract':
-      return '引力聚合'
+      return '粒子聚拢'
     case 'repel':
-      return '脉冲释放'
+      return '粒子扩散'
     case 'point':
-      return '雕刻光束'
+      return '指尖牵引'
     case 'duality':
-      return '双星轨道'
+      return '双手联动'
     case 'forming_void':
-      return '成核中'
+      return '能量汇聚'
     case 'void_core':
-      return '虚空核心'
+      return '聚合体稳定'
     case 'exploding':
-      return '超新星释放'
+      return '能量释放'
     default:
-      return '休眠'
+      return '等待手势'
+  }
+}
+
+function energyPhaseLabel(phase: string) {
+  switch (phase) {
+    case 'forming':
+      return '汇聚中'
+    case 'active':
+      return '已稳定'
+    case 'exploding':
+      return '释放中'
+    default:
+      return '未启动'
+  }
+}
+
+function trackingLabel(status: TrackingStatus) {
+  switch (status) {
+    case 'requesting_camera':
+      return '连接摄像头'
+    case 'camera_ready':
+      return '摄像头就绪'
+    case 'loading_model':
+      return '加载模型'
+    case 'warming_up':
+      return '输入预热'
+    case 'ready':
+      return '识别中'
+    case 'error':
+      return '异常'
+    default:
+      return '离线'
   }
 }
 
@@ -79,6 +111,8 @@ export function DebugOverlay() {
   const phase = useAppStore((state) => state.phase)
   const cameraReady = useAppStore((state) => state.cameraReady)
   const cameraEnabled = useAppStore((state) => state.cameraEnabled)
+  const trackingStatus = useAppStore((state) => state.trackingStatus)
+  const trackingMetrics = useAppStore((state) => state.trackingMetrics)
   const setCameraEnabled = useAppStore((state) => state.setCameraEnabled)
   const galleryMode = useAppStore((state) => state.galleryMode)
   const setGalleryMode = useAppStore((state) => state.setGalleryMode)
@@ -171,7 +205,7 @@ export function DebugOverlay() {
           <span style={styles.cameraMeta}>
             <span style={styles.cameraLabel}>摄像头</span>
             <span style={{ ...styles.cameraState, color: cameraReady ? '#dff7ff' : cameraEnabled ? '#ffe7ac' : '#ffd36b' }}>
-              {cameraReady ? '在线' : cameraEnabled ? '连接中' : '已关闭'}
+              {cameraEnabled ? trackingLabel(trackingStatus) : '已关闭'}
             </span>
           </span>
         </button>
@@ -181,11 +215,11 @@ export function DebugOverlay() {
         <div style={{ ...styles.leftPanel, boxShadow: halo }}>
           <div style={styles.panelHeader}>
             <div>
-              <div style={styles.eyebrow}>神经虚空</div>
+              <div style={styles.eyebrow}>星尘引擎</div>
               <div style={styles.title}>{modeLabel(interactionState.mode)}</div>
             </div>
             <div style={styles.inlineBadge}>
-              {galleryMode ? '展示视角' : '交互视角'} · {cameraReady ? '输入在线' : cameraEnabled ? '输入连接中' : '输入离线'}
+              {galleryMode ? '展示视角' : '交互视角'} · {cameraReady ? '摄像头已连接' : cameraEnabled ? '正在连接摄像头' : '摄像头已关闭'}
             </div>
           </div>
 
@@ -194,16 +228,16 @@ export function DebugOverlay() {
             <div style={styles.badgeAlt}>{hand2Detected ? gestureLabel(hand2GestureType) : '副手未识别'}</div>
           </div>
 
-          <Meter label="力度" value={forceStrength} tint="linear-gradient(90deg, #7de0ff, #ffd36b)" />
-          <Meter label="存在" value={interactionState.presence} tint="linear-gradient(90deg, #7de0ff, #7dc9ff)" />
-          <Meter label="深度" value={interactionState.depth} tint="linear-gradient(90deg, #9ac8ff, #c59dff)" />
-          <Meter label="双手" value={interactionState.duality} tint="linear-gradient(90deg, #ffd36b, #ff8b4d)" />
+          <Meter label="响应强度" value={forceStrength} tint="linear-gradient(90deg, #7de0ff, #ffd36b)" />
+          <Meter label="跟踪稳定" value={interactionState.presence} tint="linear-gradient(90deg, #7de0ff, #7dc9ff)" />
+          <Meter label="空间深度" value={interactionState.depth} tint="linear-gradient(90deg, #9ac8ff, #c59dff)" />
+          <Meter label="双手联动" value={interactionState.duality} tint="linear-gradient(90deg, #ffd36b, #ff8b4d)" />
 
           {detailOpen && (
             <>
               <Meter label="脉冲" value={Math.min(1, cinematicState.pulse)} tint="linear-gradient(90deg, #fff2cf, #ffd36b)" />
-              <Meter label="氛围" value={Math.min(1, cinematicState.atmosphere)} tint="linear-gradient(90deg, #6b7cff, #c48dff)" />
-              <Meter label="核心" value={voidCoreStrength} tint="linear-gradient(90deg, #f7f1df, #ff9f42)" />
+              <Meter label="环境响应" value={Math.min(1, cinematicState.atmosphere)} tint="linear-gradient(90deg, #6b7cff, #c48dff)" />
+              <Meter label="聚合能量" value={voidCoreStrength} tint="linear-gradient(90deg, #f7f1df, #ff9f42)" />
               <div style={styles.detailGrid}>
                 <div style={styles.detailCell}>
                   <span>主手</span>
@@ -214,12 +248,20 @@ export function DebugOverlay() {
                   <strong>{hand2GestureScore.toFixed(2)}</strong>
                 </div>
                 <div style={styles.detailCell}>
-                  <span>核心态</span>
-                  <strong>{voidCorePhase}</strong>
+                  <span>能量阶段</span>
+                  <strong>{energyPhaseLabel(voidCorePhase)}</strong>
                 </div>
                 <div style={styles.detailCell}>
                   <span>结构</span>
                   <strong>{activeShapeMeta?.label ?? particleShape}</strong>
+                </div>
+                <div style={styles.detailCell}>
+                  <span>识别帧率</span>
+                  <strong>{trackingMetrics.inferenceFps.toFixed(1)} FPS</strong>
+                </div>
+                <div style={styles.detailCell}>
+                  <span>识别耗时</span>
+                  <strong>{trackingMetrics.inferenceMs.toFixed(1)} ms · {trackingMetrics.delegate.toUpperCase()}</strong>
                 </div>
               </div>
             </>
@@ -231,7 +273,7 @@ export function DebugOverlay() {
         <div style={styles.rightPanel}>
           <div style={styles.panelHeaderCompact}>
             <div>
-              <div style={styles.eyebrow}>场景结构</div>
+              <div style={styles.eyebrow}>粒子形态</div>
               <div style={styles.panelTitle}>{activeShapeMeta?.label ?? '未命名结构'}</div>
             </div>
             <div style={styles.inlineBadgeAlt}>点击切换</div>
@@ -268,10 +310,10 @@ export function DebugOverlay() {
         ) : (
           <div style={styles.guidePanel}>
             <div style={styles.guideRow}>
-              <div style={styles.guideChip}>拳握：聚拢</div>
-              <div style={styles.guideChip}>张掌：释放</div>
-              <div style={styles.guideChip}>指向：雕刻</div>
-              <div style={styles.guideChip}>双拳：成核</div>
+              <div style={styles.guideChip}>握拳：聚拢</div>
+              <div style={styles.guideChip}>张开手掌：扩散</div>
+              <div style={styles.guideChip}>伸出食指：牵引</div>
+              <div style={styles.guideChip}>双手握拳：汇聚</div>
             </div>
             <button style={styles.ghostButton} onClick={() => setGuideOpen(false)}>
               收起
@@ -385,7 +427,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'absolute',
     top: 64,
     left: 18,
-    width: 236,
+    width: 252,
     padding: 14,
     borderRadius: 18,
     background: glass,

@@ -4,7 +4,6 @@ import * as THREE from 'three'
 import { computeCinematicEnvelope } from '../core/cinematic'
 import { useAppStore } from '../store/appStore'
 import type { ParticleShape } from './shapes/types'
-import { DEFAULT_PARTICLE_SHAPE } from './shapes/catalog'
 import {
   PARTICLE_COUNT,
   SHAPE_MODE,
@@ -32,7 +31,7 @@ function generateSizes(count: number) {
 
   for (let i = 0; i < count; i++) {
     const base = Math.pow(Math.random(), 2.8)
-    sizes[i] = 0.16 + base * 1.55
+    sizes[i] = 0.24 + base * 1.8
   }
 
   return sizes
@@ -70,7 +69,13 @@ function getShapeProfile(shape: ParticleShape) {
   }
 }
 
+function getInitialGenericShape(): ParticleShape {
+  const shape = useAppStore.getState().particleShape
+  return shape === 'saturn_ring' ? 'quantum_sphere' : shape
+}
+
 export function ParticleUniverse() {
+  const initialShape = useMemo(() => getInitialGenericShape(), [])
   const meshRef = useRef<THREE.Points>(null)
   const materialRef = useRef<THREE.ShaderMaterial>(null)
   const mouseTargetRef = useRef(new THREE.Vector2())
@@ -78,21 +83,20 @@ export function ParticleUniverse() {
   const hand2TargetRef = useRef(new THREE.Vector3())
   const fingertipTargetRef = useRef(new THREE.Vector3())
   const voidCenterTargetRef = useRef(new THREE.Vector3())
-  const motionSeedRef = useRef(Math.random() * 100)
+  const motionSeedRef = useRef(37.31)
   const smoothForceRef = useRef(0)
   const smoothVoidStrengthRef = useRef(0)
-  const storeSyncFrameRef = useRef(0)
-  const activeShapeRef = useRef<ParticleShape>(DEFAULT_PARTICLE_SHAPE)
+  const lastStoreSyncTimeRef = useRef(0)
+  const activeShapeRef = useRef<ParticleShape>(initialShape)
   const transitionRef = useRef({
     active: false,
     progress: 0,
-    targetShape: DEFAULT_PARTICLE_SHAPE as ParticleShape,
+    targetShape: initialShape,
   })
-  const diagRef = useRef(0)
   const { gl } = useThree()
 
   const { positions, targetPositions, colors, sizes, randoms } = useMemo(() => {
-    const initialPositions = SHAPE_GENERATORS[DEFAULT_PARTICLE_SHAPE](PARTICLE_COUNT)
+    const initialPositions = SHAPE_GENERATORS[initialShape](PARTICLE_COUNT)
 
     return {
       positions: initialPositions,
@@ -101,7 +105,7 @@ export function ParticleUniverse() {
       sizes: generateSizes(PARTICLE_COUNT),
       randoms: generateRandoms(PARTICLE_COUNT),
     }
-  }, [])
+  }, [initialShape])
 
   const uniforms = useMemo(
     () => ({
@@ -119,7 +123,7 @@ export function ParticleUniverse() {
       uVoidStrength: { value: 0 },
       uVoidExplosionTime: { value: -1 },
       uShapeTransition: { value: 0 },
-      uShapeMode: { value: SHAPE_MODE[DEFAULT_PARTICLE_SHAPE] },
+      uShapeMode: { value: SHAPE_MODE[initialShape] },
       uCinematicPulse: { value: 0.6 },
       uCinematicEnergy: { value: 0.2 },
       uInteractionMode: { value: 0 },
@@ -130,7 +134,7 @@ export function ParticleUniverse() {
       uMorphTension: { value: 0 },
       uGalleryMode: { value: 1 },
     }),
-    [gl],
+    [gl, initialShape],
   )
 
   const morphTo = (targetShape: ParticleShape) => {
@@ -197,20 +201,20 @@ export function ParticleUniverse() {
     activeUniforms.uMouse.value.lerp(mouseTargetRef.current, 0.14)
 
     handTargetRef.current.set(store.handPosition.x, store.handPosition.y, store.handPosition.z)
-    activeUniforms.uHandPos.value.lerp(handTargetRef.current, 0.28)
+    activeUniforms.uHandPos.value.lerp(handTargetRef.current, 0.52)
 
     hand2TargetRef.current.set(store.hand2Position.x, store.hand2Position.y, store.hand2Position.z)
-    activeUniforms.uHand2Pos.value.lerp(hand2TargetRef.current, 0.24)
+    activeUniforms.uHand2Pos.value.lerp(hand2TargetRef.current, 0.48)
 
     fingertipTargetRef.current.set(
       store.fingertipPosition.x,
       store.fingertipPosition.y,
       store.fingertipPosition.z,
     )
-    activeUniforms.uFingertipPos.value.lerp(fingertipTargetRef.current, 0.34)
+    activeUniforms.uFingertipPos.value.lerp(fingertipTargetRef.current, 0.58)
 
     voidCenterTargetRef.current.set(store.voidCenter.x, store.voidCenter.y, store.voidCenter.z)
-    activeUniforms.uVoidCenter.value.lerp(voidCenterTargetRef.current, 0.22)
+    activeUniforms.uVoidCenter.value.lerp(voidCenterTargetRef.current, 0.38)
 
     if (store.voidCorePhase === 'exploding' && activeUniforms.uVoidExplosionTime.value < 0) {
       activeUniforms.uVoidExplosionTime.value = state.clock.elapsedTime
@@ -229,7 +233,6 @@ export function ParticleUniverse() {
       gestureType: store.gestureType,
       gestureScore: store.gestureScore,
       handDetected: store.handDetected,
-      hand2Detected: store.hand2Detected,
       voidCorePhase: effectivePhase,
       interactionState: store.interactionState,
       transition: transition.active ? transition.progress : 0,
@@ -243,7 +246,8 @@ export function ParticleUniverse() {
     smoothVoidStrengthRef.current +=
       (targetVoidStrength - smoothVoidStrengthRef.current) *
       (targetVoidStrength > smoothVoidStrengthRef.current ? voidEaseIn : voidEaseOut)
-    smoothForceRef.current += (engineFrame.forceStrength - smoothForceRef.current) * 0.08
+    const forceEase = engineFrame.forceStrength > smoothForceRef.current ? 0.2 : 0.14
+    smoothForceRef.current += (engineFrame.forceStrength - smoothForceRef.current) * forceEase
 
     activeUniforms.uVoidPhase.value = phaseMap[effectivePhase] ?? 0
     activeUniforms.uVoidStrength.value = smoothVoidStrengthRef.current
@@ -344,27 +348,12 @@ export function ParticleUniverse() {
       ),
     )
 
-    storeSyncFrameRef.current = (storeSyncFrameRef.current + 1) % 2
-    if (storeSyncFrameRef.current === 0) {
-      if (Math.abs(store.forceStrength - smoothForceRef.current) > 0.015) {
-        store.setForceStrength(smoothForceRef.current)
-      }
-
+    if (state.clock.elapsedTime - lastStoreSyncTimeRef.current >= 0.1) {
+      lastStoreSyncTimeRef.current = state.clock.elapsedTime
       store.setCinematicState({
         ...envelope,
         transition: transition.active ? transition.progress : 0,
       })
-    }
-
-    diagRef.current += 1
-    if (diagRef.current % 90 === 1) {
-      console.log(
-        `[ParticleUniverse] frame=${diagRef.current} ` +
-          `phase=${store.voidCorePhase} effective=${effectivePhase} ` +
-          `mode=${store.interactionState.mode} shape=${activeShapeRef.current} ` +
-          `target=${transition.targetShape} trans=${activeUniforms.uShapeTransition.value.toFixed(2)} ` +
-          `force=${activeUniforms.uForceStrength.value.toFixed(3)} void=${activeUniforms.uVoidStrength.value.toFixed(3)}`,
-      )
     }
   })
 

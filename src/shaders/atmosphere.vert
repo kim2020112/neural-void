@@ -28,7 +28,7 @@ void main() {
   float viewDepth = clamp((-mvPosition.z - 8.0) / 60.0, 0.0, 1.0);
   gl_PointSize = aScale * mix(5.8, 1.5, viewDepth) * (160.0 / -mvPosition.z);
 
-  float density = mix(0.1, 0.38, aLayer);
+  float density = mix(0.055, 0.2, aLayer);
   vAlpha = density * (0.5 + uPulse * 0.25) * smoothstep(0.0, 0.9, viewDepth);
 
   vec3 deepSpace = vec3(0.07, 0.10, 0.16);

@@ -3,9 +3,10 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import atmosphereVert from '../shaders/atmosphere.vert'
 import atmosphereFrag from '../shaders/atmosphere.frag'
+import { getSceneProfile } from '../scenes/sceneProfiles'
 import { useAppStore } from '../store/appStore'
 
-const ATMOSPHERE_COUNT = 3600
+const ATMOSPHERE_COUNT = 520
 
 function generateAtmosphereField(count: number) {
   const positions = new Float32Array(count * 3)
@@ -49,7 +50,12 @@ function generateAtmosphereField(count: number) {
 
 export function SpaceAtmosphere() {
   const pointsRef = useRef<THREE.Points>(null)
-  const { positions, scales, layers, randomness } = useMemo(() => generateAtmosphereField(ATMOSPHERE_COUNT), [])
+  const materialRef = useRef<THREE.ShaderMaterial>(null)
+  const geometryRef = useRef<THREE.BufferGeometry>(null)
+  const particleShape = useAppStore((s) => s.particleShape)
+  const profile = getSceneProfile(particleShape)
+
+  const fullField = useMemo(() => generateAtmosphereField(ATMOSPHERE_COUNT), [])
 
   const uniforms = useMemo(
     () => ({
@@ -62,29 +68,40 @@ export function SpaceAtmosphere() {
   )
 
   useFrame((state) => {
-    const { cinematicState } = useAppStore.getState()
+    const { cinematicState, particleShape: shape } = useAppStore.getState()
+    const activeUniforms = materialRef.current?.uniforms
+    if (!activeUniforms) return
 
-    uniforms.uTime.value = state.clock.elapsedTime
-    uniforms.uPulse.value = cinematicState.pulse
-    uniforms.uEnergy.value = cinematicState.atmosphere + cinematicState.transition * 0.18
-    uniforms.uTurbulence.value = cinematicState.turbulence + cinematicState.shock * 0.08
+    const atmosphere = getSceneProfile(shape).atmosphere
+    activeUniforms.uTime.value = state.clock.elapsedTime
+    activeUniforms.uPulse.value = cinematicState.pulse * atmosphere.pulseScale
+    activeUniforms.uEnergy.value =
+      atmosphere.energyBase +
+      cinematicState.atmosphere * atmosphere.energyScale +
+      cinematicState.transition * 0.18 * atmosphere.energyScale
+    activeUniforms.uTurbulence.value =
+      atmosphere.turbulenceBase +
+      (cinematicState.turbulence + cinematicState.shock * 0.08) * atmosphere.turbulenceScale
 
     if (pointsRef.current) {
-      pointsRef.current.rotation.y = state.clock.elapsedTime * 0.01 + cinematicState.drift * 0.05
-      pointsRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.04) * 0.03
-      pointsRef.current.position.y = cinematicState.breath * 0.2
+      pointsRef.current.rotation.y = state.clock.elapsedTime * atmosphere.rotationSpeed + cinematicState.drift * 0.05
+      pointsRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.04) * atmosphere.rotationTilt
+      pointsRef.current.position.y = cinematicState.breath * atmosphere.verticalDrift
+      pointsRef.current.visible = true
     }
+    geometryRef.current?.setDrawRange(0, atmosphere.count)
   })
 
   return (
-    <points ref={pointsRef} renderOrder={-1}>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
-        <bufferAttribute attach="attributes-aScale" args={[scales, 1]} />
-        <bufferAttribute attach="attributes-aLayer" args={[layers, 1]} />
-        <bufferAttribute attach="attributes-aRandom" args={[randomness, 1]} />
+    <points ref={pointsRef} renderOrder={-1} key={profile.id}>
+      <bufferGeometry ref={geometryRef}>
+        <bufferAttribute attach="attributes-position" args={[fullField.positions, 3]} />
+        <bufferAttribute attach="attributes-aScale" args={[fullField.scales, 1]} />
+        <bufferAttribute attach="attributes-aLayer" args={[fullField.layers, 1]} />
+        <bufferAttribute attach="attributes-aRandom" args={[fullField.randomness, 1]} />
       </bufferGeometry>
       <shaderMaterial
+        ref={materialRef}
         vertexShader={atmosphereVert}
         fragmentShader={atmosphereFrag}
         uniforms={uniforms}

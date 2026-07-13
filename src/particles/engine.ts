@@ -7,7 +7,7 @@ import type {
 } from '../store/appStore'
 import type { ParticleShape } from './shapes/types'
 
-export const PARTICLE_COUNT = 20000
+export const PARTICLE_COUNT = 10000
 export const SHAPE_TRANSITION_DURATION = 1.85
 
 export const SHAPE_MODE: Record<ParticleShape, number> = {
@@ -47,7 +47,6 @@ export interface ParticleEngineInput {
   gestureType: GestureType
   gestureScore: number
   handDetected: boolean
-  hand2Detected: boolean
   voidCorePhase: VoidCorePhase
   interactionState: InteractionState
   transition: number
@@ -67,7 +66,7 @@ export interface ParticleEngineFrame {
 
 export function getGestureForce(handDetected: boolean, gestureType: GestureType, gestureScore: number) {
   if (!handDetected) return 0
-  if (gestureType === 'none') return 0.18
+  if (gestureType === 'none') return 0
   return Math.max(0.38, gestureScore)
 }
 
@@ -100,14 +99,12 @@ export function resolveParticleEngineFrame({
   gestureType,
   gestureScore,
   handDetected,
-  hand2Detected,
   voidCorePhase,
   interactionState,
   transition,
 }: ParticleEngineInput): ParticleEngineFrame {
   const gestureForce = getGestureForce(handDetected, gestureType, gestureScore)
   const voidStrength = getVoidStrength(voidCorePhase)
-  const dualityBoost = interactionState.duality * 0.32 + interactionState.orbit * 0.18
   const depthBias = clamp01(interactionState.depth * (handDetected ? 1 : 0))
   const morphTension = clamp01(
     transition * 0.82 + interactionState.focus * 0.28 + interactionState.orbit * 0.22 + voidStrength * 0.36,
@@ -117,10 +114,13 @@ export function resolveParticleEngineFrame({
   )
 
   const forceType = voidCorePhase !== 'idle' ? 4 : gestureToForceType(handDetected ? gestureType : 'none')
+  const hasDirectGesture = handDetected && gestureType !== 'none'
   const forceStrength =
     voidCorePhase !== 'idle'
       ? 0
-      : clamp01(gestureForce * 0.76 + dualityBoost + depthBias * 0.14 + (hand2Detected ? 0.08 : 0))
+      : hasDirectGesture
+        ? clamp01(gestureForce * 0.76 + depthBias * 0.14)
+        : 0
 
   return {
     forceType,

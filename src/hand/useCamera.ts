@@ -2,7 +2,12 @@ import { useEffect, useRef } from 'react'
 import { useAppStore } from '../store/appStore'
 
 const CAMERA_CONSTRAINTS = {
-  video: { width: 640, height: 480, facingMode: 'user' },
+  video: {
+    width: { ideal: 640 },
+    height: { ideal: 480 },
+    frameRate: { ideal: 30, max: 30 },
+    facingMode: 'user',
+  },
 } satisfies MediaStreamConstraints
 
 function stopCameraRuntime() {
@@ -26,27 +31,66 @@ function stopCameraRuntime() {
 function resetInteractionState() {
   const store = useAppStore.getState()
   store.setCameraReady(false)
-  store.setHandDetected(false)
-  store.setHand2Detected(false)
-  store.setGestureType('none', 0)
-  store.setHand2GestureType('none', 0)
-  store.setForceStrength(0)
-  store.setInteractionState({
-    mode: 'idle',
-    presence: 0,
-    duality: 0,
-    depth: 0,
-    focus: 0,
-    orbit: 0,
+  store.setHandTrackingFrame({
+    gestureData: { gestures: [], landmarks: [], handedness: [] },
+    handPosition: { x: 0, y: 0, z: 0 },
+    fingertipPosition: { x: 0, y: 0, z: 0 },
+    gestureType: 'none',
+    gestureScore: 0,
+    handDetected: false,
+    hand2Position: { x: 0, y: 0, z: 0 },
+    hand2FingertipPosition: { x: 0, y: 0, z: 0 },
+    hand2GestureType: 'none',
+    hand2GestureScore: 0,
+    hand2Detected: false,
+    forceStrength: 0,
+    interactionState: {
+      mode: 'idle',
+      presence: 0,
+      duality: 0,
+      depth: 0,
+      focus: 0,
+      orbit: 0,
+    },
   })
   store.setVoidCorePhase('idle')
   store.setVoidCoreStrength(0)
   store.setVoidExplosionTime(-1)
 }
 
+function waitForVideoReady(video: HTMLVideoElement) {
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return Promise.resolve()
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      cleanup()
+      reject(new Error('Camera video stream timed out.'))
+    }, 5000)
+    const handleReady = () => {
+      cleanup()
+      resolve()
+    }
+    const handleError = () => {
+      cleanup()
+      reject(new Error('Camera video stream did not become ready.'))
+    }
+    const cleanup = () => {
+      window.clearTimeout(timeoutId)
+      video.removeEventListener('loadeddata', handleReady)
+      video.removeEventListener('error', handleError)
+    }
+
+    video.addEventListener('loadeddata', handleReady, { once: true })
+    video.addEventListener('error', handleError, { once: true })
+  })
+}
+
 export function useCamera() {
   const phase = useAppStore((s) => s.phase)
   const cameraEnabled = useAppStore((s) => s.cameraEnabled)
+  const cameraRequested = phase !== 'idle'
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
   useEffect(() => {
@@ -72,10 +116,15 @@ export function useCamera() {
       globals.__videoElement = video
 
       await video.play()
+      await waitForVideoReady(video)
+      if (cancelled) return
+
       useAppStore.getState().setCameraReady(true)
+      useAppStore.getState().setTrackingStatus('camera_ready')
     }
 
     const enableCamera = async () => {
+      useAppStore.getState().setTrackingStatus('requesting_camera')
       const globals = window as unknown as Record<string, unknown>
       let stream = globals.__cameraStream as MediaStream | undefined
 
@@ -91,17 +140,28 @@ export function useCamera() {
       await attachVideo(stream)
     }
 
-    if (phase !== 'active' || !cameraEnabled) {
+    if (!cameraRequested || !cameraEnabled) {
       stopCameraRuntime()
       videoRef.current = null
       resetInteractionState()
+      const store = useAppStore.getState()
+      if (store.trackingStatus !== 'error') {
+        store.setTrackingStatus('idle')
+      }
       return
     }
 
     enableCamera().catch((error) => {
+      if (cancelled) return
       console.error('Camera runtime error:', error)
-      useAppStore.getState().setCameraReady(false)
-      useAppStore.getState().setCameraEnabled(false)
+      const store = useAppStore.getState()
+      store.setCameraReady(false)
+      store.setTrackingStatus('error', '无法启动摄像头，请检查浏览器权限后重试。')
+      if (store.phase === 'loading') {
+        store.setPhase('idle')
+      } else {
+        store.setCameraEnabled(false)
+      }
     })
 
     return () => {
@@ -110,7 +170,7 @@ export function useCamera() {
       videoRef.current = null
       resetInteractionState()
     }
-  }, [cameraEnabled, phase])
+  }, [cameraEnabled, cameraRequested])
 
   return videoRef
 }

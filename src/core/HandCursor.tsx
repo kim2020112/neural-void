@@ -40,8 +40,8 @@ export function HandCursor() {
 
       if (store.handDetected) {
         targetPrimary.current.set(store.handPosition.x, store.handPosition.y, store.handPosition.z)
-        primaryRef.current.position.lerp(targetPrimary.current, 0.22)
-        primaryHaloRef.current.position.lerp(targetPrimary.current, 0.18)
+        primaryRef.current.position.lerp(targetPrimary.current, 0.5)
+        primaryHaloRef.current.position.lerp(targetPrimary.current, 0.34)
 
         const primaryScale = 0.7 + interactionState.depth * 0.55 + cinematicState.energy * 0.22
         primaryRef.current.scale.setScalar(primaryScale * 0.5)
@@ -61,8 +61,8 @@ export function HandCursor() {
 
       if (store.hand2Detected) {
         targetSecondary.current.set(store.hand2Position.x, store.hand2Position.y, store.hand2Position.z)
-        secondaryRef.current.position.lerp(targetSecondary.current, 0.22)
-        secondaryHaloRef.current.position.lerp(targetSecondary.current, 0.18)
+        secondaryRef.current.position.lerp(targetSecondary.current, 0.5)
+        secondaryHaloRef.current.position.lerp(targetSecondary.current, 0.34)
 
         const secondaryScale = 0.62 + interactionState.depth * 0.42 + interactionState.duality * 0.28
         secondaryRef.current.scale.setScalar(secondaryScale * 0.44)

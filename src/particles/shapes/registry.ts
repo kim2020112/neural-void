@@ -58,8 +58,8 @@ function generateQuantumSphere(count: number): Float32Array {
   for (let i = 0; i < count; i++) {
     const region = hash(i, 1.7)
 
-    if (region < 0.14) {
-      const radius = sampleRadiusBand(i, 0.2, 1.55, 1.8)
+    if (region < 0.28) {
+      const radius = sampleRadiusBand(i, 0.12, 2.1, 1.65)
       const theta = TAU * hash(i, 10.2)
       const phi = Math.acos(1 - 2 * hash(i, 10.8))
       setPoint(
@@ -72,10 +72,10 @@ function generateQuantumSphere(count: number): Float32Array {
       continue
     }
 
-    if (region < 0.48) {
+    if (region < 0.86) {
       const { theta, phi } = sampleSphere(i, count)
-      const shellRadius = 4.9 + hash(i, 11.4) * 1.7
-      const shellRipple = Math.sin(theta * 6.0 + phi * 4.0 + hash(i, 12.2) * TAU) * 0.16
+      const shellRadius = 2.8 + hash(i, 11.4) * 1.45
+      const shellRipple = Math.sin(theta * 6.0 + phi * 4.0 + hash(i, 12.2) * TAU) * 0.12
       const radius = shellRadius + shellRipple
       setPoint(
         positions,
@@ -87,19 +87,19 @@ function generateQuantumSphere(count: number): Float32Array {
       continue
     }
 
-    const orbitLane = Math.floor(hash(i, 13.3) * 3)
+    const orbitLane = Math.floor(hash(i, 13.3) * 2)
     const theta = TAU * hash(i, 13.9)
-    const orbitRadius = 7.2 + hash(i, 14.6) * 1.7
-    const eccentricity = orbitLane === 0 ? 0.78 : orbitLane === 1 ? 0.9 : 0.68
-    const bandThickness = hashSigned(i, 15.2) * (0.08 + hash(i, 15.8) * 0.16)
+    const orbitRadius = 4.6 + hash(i, 14.6) * 1.0
+    const eccentricity = orbitLane === 0 ? 0.82 : 0.72
+    const bandThickness = hashSigned(i, 15.2) * (0.045 + hash(i, 15.8) * 0.1)
 
-    let x = Math.cos(theta) * orbitRadius
-    let y = bandThickness
-    let z = Math.sin(theta) * orbitRadius * eccentricity
+    const x = Math.cos(theta) * orbitRadius
+    const y = bandThickness
+    const z = Math.sin(theta) * orbitRadius * eccentricity
 
-    const tiltX = orbitLane === 0 ? 0.16 : orbitLane === 1 ? 1.08 : 0.78
-    const tiltY = orbitLane === 0 ? 0.28 : orbitLane === 1 ? -0.22 : 0.54
-    const tiltZ = orbitLane === 0 ? 0.0 : orbitLane === 1 ? 0.74 : -0.7
+    const tiltX = orbitLane === 0 ? 0.22 : 0.92
+    const tiltY = orbitLane === 0 ? 0.2 : -0.18
+    const tiltZ = orbitLane === 0 ? -0.08 : 0.58
 
     const rx = rotateXPoint(x, y, z, tiltX)
     const ry = rotateYPoint(rx.x, rx.y, rx.z, tiltY)
