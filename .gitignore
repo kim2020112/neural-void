@@ -28,3 +28,9 @@ dist-ssr
 
 # Copied WASM files from @mediapipe/tasks-vision
 public/wasm/
+
+# Local agent work products and session handoff
+.claude/
+.firecrawl/
+.superpowers/
+handoff.md
