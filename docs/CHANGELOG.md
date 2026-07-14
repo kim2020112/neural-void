@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-07-14 — 八场景专用渲染与正式目录
+
+### Added
+
+- 新增 15,000 粒子的专用能量球：核心、双层 Fibonacci 球壳、三组交错轨道和径向脉冲
+- 新增 15,600 粒子的专用能量纽结：三股 `p=2, q=3` 闭合轨迹、交叉热点和传播火花
+- 新增 15,000 粒子的专用黄金螺旋：四条伴生丝、13 个尺度节点、增长前沿和尺度尘埃
+- 新增 18,000 粒子的专用旋臂星系：核球、盘面、双对数旋臂、暗尘带和星晕
+- 为四个场景新增确定性几何测试、独立 vertex/fragment shader、专属 HUD 图示、镜头、Bloom、雾和低密度氛围
+
+### Changed
+
+- 8 个 `ParticleShape` 全部改由 `defineLazyRenderer()` 动态导入，预加载表收紧为完整 `Record<ParticleShape, ...>`
+- 场景目录移除 `SceneTier`、`tier`、旗舰/Lab 派生列表和实验开关，`SHAPE_OPTIONS` 成为唯一 1–8 正式目录
+- 场景库直接展示 2 列 8 场景网格，继续保留预取、失败重试、原场景保持和移动端成功后关闭
+- 新 HUD 编号固定为 `S-05 / QUANTUM CORE`、`S-06 / ENTANGLED FLOW`、`S-07 / PHI GROWTH`、`S-08 / GALACTIC WAVE`
+- 四个新系统统一消费 `resolveSceneInteractionFrame()`；双手使用 `dualSpan` / `midpoint`，单拳聚能严格乘以 `0.65`
+- 爆发、冲击波和分阶段重组全部在 GPU 完成；旧 `ParticleUniverse` 与 `SHAPE_GENERATORS` 仅保留作兼容实现
+
+### Verification
+
+- Vitest：6 个测试文件、18 个用例通过
+- TypeScript、ESLint 和生产构建通过
+- 生产构建生成 `QuantumSystem`、`KnotSystem`、`SpiralSystem`、`GalaxySystem` 四个独立 chunk，gzip 约 3.86–4.12 kB
+- Playwright runner 在本机启动后无用例输出，按既定约束终止；浏览器画布与手势效果保留手动验收
+
 ## 2026-07-13 — 四旗舰场景库与专用四维立方
 
 ### Added

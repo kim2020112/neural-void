@@ -1,9 +1,5 @@
 import { useMemo, useState } from 'react'
-import {
-  FEATURED_SHAPE_OPTIONS,
-  LAB_SHAPE_OPTIONS,
-  SHAPE_OPTIONS,
-} from '../particles/shapes/catalog'
+import { SHAPE_OPTIONS } from '../particles/shapes/catalog'
 import type { ParticleShape, ShapeOption } from '../particles/shapes/types'
 import { preloadSceneRenderer } from '../scenes/sceneProfiles'
 import { useAppStore } from '../store/appStore'
@@ -15,9 +11,6 @@ interface SceneLibraryProps {
 export function SceneLibrary({ onRequestClose }: SceneLibraryProps) {
   const particleShape = useAppStore((state) => state.particleShape)
   const setParticleShape = useAppStore((state) => state.setParticleShape)
-  const [labOpen, setLabOpen] = useState(() =>
-    LAB_SHAPE_OPTIONS.some((shape) => shape.id === particleShape),
-  )
   const [pendingShape, setPendingShape] = useState<ParticleShape | null>(null)
   const [failedShape, setFailedShape] = useState<ParticleShape | null>(null)
   const activeShape = useMemo(
@@ -35,7 +28,6 @@ export function SceneLibrary({ onRequestClose }: SceneLibraryProps) {
     setFailedShape(null)
     try {
       await preloadSceneRenderer(shape)
-      if (LAB_SHAPE_OPTIONS.some((option) => option.id === shape)) setLabOpen(true)
       setParticleShape(shape)
       if (window.matchMedia('(max-width: 760px)').matches) onRequestClose()
     } catch {
@@ -76,10 +68,7 @@ export function SceneLibrary({ onRequestClose }: SceneLibraryProps) {
       >
         <span className="scene-library__accent" style={{ background: shape.accent }} />
         <span className="scene-library__card-meta">
-          {shape.tier === 'featured' && (
-            <span>{String(shape.featuredOrder).padStart(2, '0')}</span>
-          )}
-          <span>{shape.tier === 'featured' ? '旗舰' : '实验'}</span>
+          <span>S-{String(shape.featuredOrder).padStart(2, '0')}</span>
         </span>
         <strong className="scene-library__card-title">{shape.label}</strong>
         <span className="scene-library__card-hint">{status}</span>
@@ -99,30 +88,12 @@ export function SceneLibrary({ onRequestClose }: SceneLibraryProps) {
           <div className="scene-library__eyebrow">场景库</div>
           <div className="scene-library__title">{activeShape?.label ?? '未命名结构'}</div>
         </div>
-        <div className="scene-library__count">4 旗舰</div>
+        <div className="scene-library__count">8 场景</div>
       </header>
 
-      <div className="scene-library__grid" aria-label="旗舰场景">
-        {FEATURED_SHAPE_OPTIONS.map(renderSceneButton)}
+      <div className="scene-library__grid" aria-label="正式场景">
+        {SHAPE_OPTIONS.map(renderSceneButton)}
       </div>
-
-      <button
-        type="button"
-        data-testid="lab-toggle"
-        className="scene-library__lab-toggle"
-        aria-controls="scene-library-lab"
-        aria-expanded={labOpen}
-        onClick={() => setLabOpen((open) => !open)}
-      >
-        <span>实验室 · {LAB_SHAPE_OPTIONS.length}</span>
-        <span className="scene-library__lab-state">{labOpen ? '收起' : '展开'}</span>
-      </button>
-
-      {labOpen && (
-        <div id="scene-library-lab" className="scene-library__grid scene-library__grid--lab" aria-label="实验场景">
-          {LAB_SHAPE_OPTIONS.map(renderSceneButton)}
-        </div>
-      )}
 
       <div className="scene-library__status" role="status" aria-live="polite">
         {pendingShape

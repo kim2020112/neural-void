@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getSceneProfile } from '../scenes/sceneProfiles'
+import { getSceneProfile, type SceneHudProfile } from '../scenes/sceneProfiles'
 import { useAppStore, type InteractionMode } from '../store/appStore'
 
 function smoothstep(value: number, edge0: number, edge1: number) {
@@ -218,18 +218,143 @@ function HypercubeDiagram({
   )
 }
 
+function QuantumDiagram({ mode, strength }: { mode: InteractionMode; strength: number }) {
+  const compressed = mode === 'attract' || mode === 'forming_void' || mode === 'void_core'
+  const expanded = mode === 'repel' || mode === 'exploding'
+  const dual = mode === 'duality' || mode === 'forming_void' || mode === 'void_core'
+  const shellScale = compressed ? 1 - strength * 0.2 : expanded ? 1 + strength * 0.14 : 1
+  const innerRadius = 17 * shellScale
+  const outerRadius = 27 * shellScale
+
+  return (
+    <svg width="120" height="72" viewBox="0 0 120 72" aria-hidden>
+      <ellipse cx="60" cy="36" rx={39 * shellScale} ry={11 * shellScale} fill="none" stroke="#ff706a" strokeWidth="1" opacity="0.7" transform="rotate(-16 60 36)" />
+      <ellipse cx="60" cy="36" rx={38 * shellScale} ry={10 * shellScale} fill="none" stroke="#42ddff" strokeWidth="1" opacity="0.65" transform="rotate(24 60 36)" />
+      <circle cx="60" cy="36" r={outerRadius} fill="none" stroke="#927dff" strokeWidth="1.2" opacity="0.75" />
+      <circle cx="60" cy="36" r={innerRadius} fill="none" stroke="#42ddff" strokeWidth="1.4" />
+      <circle cx="60" cy="36" r={6 + strength * 3} fill="#ecfdff" opacity="0.9" />
+      {mode === 'repel' && <circle cx="60" cy="36" r={30 + strength * 9} fill="none" stroke="#65ffbd" strokeWidth="1.4" opacity="0.8" />}
+      {mode === 'point' && (
+        <>
+          <circle cx="89" cy="24" r={5 + strength * 2} fill="none" stroke="#ff706a" strokeWidth="1.2" />
+          <path d="M84 27 C78 31 75 35 73 41" fill="none" stroke="#ff706a" strokeWidth="1" />
+        </>
+      )}
+      {dual && (
+        <>
+          <circle cx="15" cy="36" r="3" fill="#42ddff" />
+          <circle cx="105" cy="36" r="3" fill="#927dff" />
+          <path d="M19 36 H29 M91 36 H101" stroke="rgba(224,250,255,0.6)" strokeWidth="1" />
+        </>
+      )}
+    </svg>
+  )
+}
+
+function KnotDiagram({ mode, strength }: { mode: InteractionMode; strength: number }) {
+  const compressed = mode === 'attract' || mode === 'forming_void' || mode === 'void_core'
+  const expanded = mode === 'repel' || mode === 'exploding'
+  const dual = mode === 'duality' || mode === 'forming_void' || mode === 'void_core'
+  const scale = compressed ? 1 - strength * 0.14 : expanded ? 1 + strength * 0.1 : 1
+  const transform = `translate(60 36) scale(${scale}) translate(-60 -36)`
+
+  return (
+    <svg width="120" height="72" viewBox="0 0 120 72" aria-hidden>
+      <g transform={transform}>
+        <path d="M28 36 C28 12 58 10 68 28 C78 46 53 62 38 48 C20 31 48 14 74 22 C99 30 91 57 67 56" fill="none" stroke="#ffae45" strokeWidth="1.6" />
+        <path d="M31 45 C17 27 41 11 61 24 C81 37 73 61 49 57 C25 53 25 25 48 17 C72 9 98 23 89 43" fill="none" stroke="#27e5ff" strokeWidth="1.45" />
+        <path d="M36 18 C57 6 82 18 77 39 C72 60 42 64 32 44 C22 23 48 14 67 25 C88 37 91 58 67 62" fill="none" stroke="#ff63bd" strokeWidth="1.35" />
+        <circle cx="48" cy="27" r={2.2 + strength} fill="#fff8e5" />
+        <circle cx="72" cy="45" r={2.2 + strength} fill="#fff8e5" />
+      </g>
+      {mode === 'point' && <circle cx={38 + strength * 43} cy="36" r="4" fill="none" stroke="#fff8e5" strokeWidth="1.2" />}
+      {dual && (
+        <>
+          <circle cx="14" cy="36" r="3" fill="#ffae45" />
+          <circle cx="106" cy="36" r="3" fill="#27e5ff" />
+        </>
+      )}
+    </svg>
+  )
+}
+
+const HUD_SPIRAL_NODES = Array.from({ length: 13 }, (_, index) => {
+  const progress = index / 12
+  const angle = -Math.PI * 1.5 + progress * Math.PI * 3
+  const radius = 3 + Math.exp(progress * 2.5) * 2.15
+  return { x: 60 + Math.cos(angle) * radius, y: 36 + Math.sin(angle) * radius * 0.62 }
+})
+
+function SpiralDiagram({ mode, strength }: { mode: InteractionMode; strength: number }) {
+  const compressed = mode === 'attract' || mode === 'forming_void' || mode === 'void_core'
+  const expanded = mode === 'repel' || mode === 'exploding'
+  const dual = mode === 'duality' || mode === 'forming_void' || mode === 'void_core'
+  const scale = compressed ? 1 - strength * 0.28 : expanded ? 1 + strength * 0.12 : 1
+  const selectedNode = Math.min(12, Math.round(strength * 12))
+
+  return (
+    <svg width="120" height="72" viewBox="0 0 120 72" aria-hidden>
+      <g transform={`translate(60 36) scale(${scale}) translate(-60 -36)`}>
+        <path d="M61 36 C54 31 56 23 66 23 C81 23 88 36 82 48 C73 65 43 64 29 48 C12 28 29 7 55 6 C86 5 108 26 102 53" fill="none" stroke="#d9ff47" strokeWidth="1.7" />
+        <path d="M60 34 C53 29 58 21 68 22 C84 24 90 38 82 50 C70 67 39 61 27 45" fill="none" stroke="#ffad32" strokeWidth="1" opacity="0.72" />
+        {HUD_SPIRAL_NODES.map((node, index) => (
+          <circle key={index} cx={node.x} cy={node.y} r={index === selectedNode && mode === 'point' ? 3.2 : 1.25} fill={index === selectedNode && mode === 'point' ? '#59e4ff' : '#efff9c'} opacity={0.55 + index / 30} />
+        ))}
+      </g>
+      {mode === 'repel' && <circle cx="101" cy="53" r={4 + strength * 3} fill="none" stroke="#52ff9b" strokeWidth="1.3" />}
+      {dual && (
+        <>
+          <circle cx="14" cy="36" r="3" fill="#ffad32" />
+          <circle cx="106" cy="36" r="3" fill="#52ff9b" />
+        </>
+      )}
+    </svg>
+  )
+}
+
+function GalaxyDiagram({ mode, strength }: { mode: InteractionMode; strength: number }) {
+  const compressed = mode === 'attract' || mode === 'forming_void' || mode === 'void_core'
+  const expanded = mode === 'repel' || mode === 'exploding'
+  const dual = mode === 'duality' || mode === 'forming_void' || mode === 'void_core'
+  const scale = compressed ? 1 - strength * 0.15 : expanded ? 1 + strength * 0.1 : 1
+
+  return (
+    <svg width="120" height="72" viewBox="0 0 120 72" aria-hidden>
+      <g transform={`translate(60 36) scale(${scale}) translate(-60 -36)`}>
+        <path d="M60 36 C67 29 80 29 87 36 C98 47 88 61 72 63 C45 67 22 53 20 35" fill="none" stroke="#54e8ff" strokeWidth="1.55" />
+        <path d="M60 36 C53 43 40 43 33 36 C22 25 32 11 48 9 C75 5 98 19 100 37" fill="none" stroke="#ff747d" strokeWidth="1.55" />
+        <path d="M31 20 C50 28 72 28 92 48" fill="none" stroke="rgba(8,12,22,0.95)" strokeWidth="4" strokeDasharray="4 3" />
+        <circle cx="60" cy="36" r={8 + strength * 2} fill="#fff1d1" opacity="0.9" />
+        <circle cx="60" cy="36" r="13" fill="none" stroke="rgba(255,210,122,0.45)" strokeWidth="1" />
+      </g>
+      {mode === 'repel' && <circle cx="60" cy="36" r={20 + strength * 23} fill="none" stroke="#ffd27a" strokeWidth="1.2" />}
+      {mode === 'point' && <circle cx="88" cy="24" r={4 + strength * 2} fill="none" stroke="#54e8ff" strokeWidth="1.2" />}
+      {dual && (
+        <>
+          <circle cx="14" cy="36" r="3" fill="#ff747d" />
+          <circle cx="106" cy="36" r="3" fill="#54e8ff" />
+        </>
+      )}
+    </svg>
+  )
+}
+
 function SceneDiagram({
   diagram,
   mode,
   strength,
 }: {
-  diagram: 'orbit' | 'dna' | 'hypercube' | 'singularity'
+  diagram: SceneHudProfile['diagram']
   mode: InteractionMode
   strength: number
 }) {
   if (diagram === 'singularity') return <SingularityDiagram mode={mode} strength={strength} />
   if (diagram === 'dna') return <DnaDiagram mode={mode} strength={strength} />
   if (diagram === 'hypercube') return <HypercubeDiagram mode={mode} strength={strength} />
+  if (diagram === 'quantum') return <QuantumDiagram mode={mode} strength={strength} />
+  if (diagram === 'knot') return <KnotDiagram mode={mode} strength={strength} />
+  if (diagram === 'spiral') return <SpiralDiagram mode={mode} strength={strength} />
+  if (diagram === 'galaxy') return <GalaxyDiagram mode={mode} strength={strength} />
   return <OrbitDiagram mode={mode} />
 }
 

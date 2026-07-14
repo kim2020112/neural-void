@@ -1,24 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import {
-  FEATURED_SHAPE_OPTIONS,
-  LAB_SHAPE_OPTIONS,
-  SHAPE_OPTIONS,
-} from './catalog'
+import * as catalog from './catalog'
+import { SHAPE_OPTIONS } from './catalog'
 
 describe('scene catalog', () => {
-  it('contains four featured scenes and four lab scenes', () => {
+  it('contains eight official scenes without derived lab exports', () => {
     expect(SHAPE_OPTIONS).toHaveLength(8)
-    expect(FEATURED_SHAPE_OPTIONS).toHaveLength(4)
-    expect(LAB_SHAPE_OPTIONS).toHaveLength(4)
+    expect('FEATURED_SHAPE_OPTIONS' in catalog).toBe(false)
+    expect('LAB_SHAPE_OPTIONS' in catalog).toBe(false)
+    expect(SHAPE_OPTIONS.every((shape) => !('tier' in shape))).toBe(true)
   })
 
-  it('keeps the featured order stable', () => {
-    expect(FEATURED_SHAPE_OPTIONS.map((shape) => shape.id)).toEqual([
+  it('keeps the S-01 through S-08 order stable', () => {
+    expect(SHAPE_OPTIONS.map((shape) => shape.id)).toEqual([
       'saturn_ring',
       'dna_helix',
       'hypercube',
       'singularity',
+      'quantum_sphere',
+      'knot_torus',
+      'golden_spiral',
+      'galaxy',
     ])
-    expect(FEATURED_SHAPE_OPTIONS.map((shape) => shape.featuredOrder)).toEqual([1, 2, 3, 4])
+    expect(SHAPE_OPTIONS.map((shape) => shape.featuredOrder)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
   })
 })

@@ -7,15 +7,15 @@
 系统包含 8 个场景：
 
 - 土星环 `saturn_ring`
+- 双螺旋 `dna_helix`
+- 四维立方 `hypercube`
+- 引力奇点 `singularity`
 - 能量球 `quantum_sphere`
 - 能量纽结 `knot_torus`
-- 双螺旋 `dna_helix`
 - 黄金螺旋 `golden_spiral`
-- 四维立方 `hypercube`
 - 旋臂星系 `galaxy`
-- 引力奇点 `singularity`
 
-土星环、双螺旋、四维立方和引力奇点拥有专用渲染器，构成公开展示的四个旗舰场景。能量球、能量纽结、黄金螺旋和旋臂星系作为 Lab 形态继续共享通用 `ParticleUniverse` 和形态注册表。
+8 个场景均为正式产品场景，拥有独立的确定性几何生成器、R3F 系统、shader、镜头、Bloom、氛围和 HUD。`ParticleUniverse` 与 `SHAPE_GENERATORS` 继续保留作兼容实现，但不再由场景 profile 引用。
 
 ## Directory Structure
 
@@ -40,6 +40,10 @@ src/
     dna/                      14,000 粒子的专用双螺旋系统
     hypercube/                14,400 粒子的专用四维立方系统
     singularity/              16,000 粒子的专用奇点系统
+    quantum/                  15,000 粒子的专用能量球系统
+    knot/                     15,600 粒子的专用能量纽结系统
+    spiral/                   15,000 粒子的专用黄金螺旋系统
+    galaxy/                   18,000 粒子的专用旋臂星系系统
   scenes/
     sceneProfiles.ts          渲染器、镜头、后处理、氛围和 HUD 配置中心
     sceneInteraction.ts       场景无关的交互帧解析
@@ -49,6 +53,10 @@ src/
     dna*                      DNA 粒子与碱基横梁 shader
     hypercube.*               四维旋转、投影、传播与重组 shader
     singularity*              奇点粒子和光子环 shader
+    quantum.*                 球壳、透镜、径向波与重组 shader
+    knot.*                    三股纽结、曲线传播与拓扑重组 shader
+    spiral.*                  黄金增长、尺度扫描与回卷 shader
+    galaxy.*                  差速旋转、密度波与暗尘带 shader
     background.*              深空背景 shader
     atmosphere.*              氛围粒子 shader
   store/
@@ -57,8 +65,8 @@ src/
     App.tsx                   根装配
     EnterScreen.tsx           进入和加载状态
     DebugOverlay.tsx          模式、摄像头和诊断控制
-    SceneLibrary.tsx          旗舰/Lab 场景库与异步切换状态
-    SceneHud.tsx              四个旗舰场景的产品 HUD
+    SceneLibrary.tsx          8 场景目录与异步切换状态
+    SceneHud.tsx              8 个正式场景的产品 HUD
     TrackingCursorOverlay.tsx 二维手部跟踪反馈
 ```
 
@@ -84,21 +92,21 @@ src/
 
 `src/scenes/sceneProfiles.ts` 是场景配置的唯一入口。每个 `SceneProfile` 包含：
 
-- `Renderer`：通用或专用 React Three Fiber 组件
+- `Renderer`：专用 React Three Fiber 组件
 - `camera` / `heroCamera`：场景镜头和运动幅度
 - `post`：Bloom、亮度、对比度和暗角偏置
 - `atmosphere`：背景聚焦、粒子数量、能量和运动权重
-- `hud`：仅完整产品场景使用的控制文案和结构图
+- `hud`：场景控制文案和动态结构图
 
-场景切换会重新挂载不同的专用渲染器，不尝试在通用粒子和专用几何之间进行 morph。四个专用渲染器使用动态导入；场景库在悬停、聚焦或按下时预取目标模块，模块就绪后才提交场景切换。
+场景切换会重新挂载不同的专用渲染器，不尝试在场景之间进行 morph。8 个渲染器全部使用动态导入；场景库在悬停、聚焦或按下时预取目标模块，模块就绪后才提交场景切换。
 
-场景目录通过 `ShapeOption.tier` 和 `featuredOrder` 统一派生 4 个旗舰与 4 个 Lab，UI 不重复维护场景 ID。Lab 默认折叠，当前场景属于 Lab 时展开；移动端仅在切换成功后关闭场景面板。
+`SHAPE_OPTIONS` 是唯一正式目录，`featuredOrder` 必填且固定为 1–8。UI 不维护派生 Lab 列表；移动端仅在目标模块成功加载并完成场景切换后关闭面板。
 
 ## Rendering Boundaries
 
-### ParticleUniverse
+### Compatibility Layer
 
-通用场景共享 10,000 粒子、通用 shader 和形态缓动。旧的土星、双螺旋、四维立方和奇点形态生成器仍保留在注册表中，用于兼容形态数据，但运行时由专用渲染器接管。
+`ParticleUniverse`、通用 shader 和 8 个旧形态生成器保留用于兼容形态数据。正式运行时全部由专用渲染器接管，profile 不再导入通用组件。
 
 ### SaturnSystem
 
@@ -131,6 +139,30 @@ src/
 - 黑色事件视界先写入深度，再渲染前景吸积盘和光子环
 - 专属 Bloom、低雾层、低氛围粒子和奇点 HUD
 
+### QuantumSystem
+
+- 单个 `points` draw call 渲染 15,000 粒子：3,000 核心、两层各 4,200 的 Fibonacci 球壳、2,400 轨道和 1,200 脉冲粒子
+- shader 完成壳层压缩、交错轨道旋进、径向能量波、局部透镜、核心聚能和分阶段重组
+- 双手跨度控制球壳尺度，中点控制结构倾角；单拳聚能严格乘以 `0.65`
+
+### KnotSystem
+
+- 单个 `points` draw call 渲染 15,600 粒子：12,600 三股轨迹、1,800 交叉热点和 1,200 传播火花
+- 三股轨迹使用闭合的 `p=2, q=3` 环面纽结参数，进入指向时从 96 个曲线采样中选择最近参数
+- shader 完成收紧、展开、沿曲线双向传播、交叉增亮、爆发和拓扑重组
+
+### SpiralSystem
+
+- 单个 `points` draw call 渲染 15,000 粒子：1,800 核心、10,400 四条伴生丝、1,400 增长前沿和 1,400 尺度尘埃
+- 黄金对数半径每四分之一圈按 `φ` 增长，13 个尺度节点支持指向扫描
+- shader 完成向种子回卷、增长前沿、双手定标、聚能、外爆和重组
+
+### GalaxySystem
+
+- 单个 `points` draw call 渲染 18,000 粒子：3,000 核球、3,000 盘面、8,400 双臂、2,400 尘埃带和 1,200 星晕
+- 双对数旋臂相差 `π`，shader 按半径执行差速旋转、旋臂收紧、密度波和局部引力扰动
+- 尘埃角色在同一 draw call 内使用普通混合输出暗带，不增加独立几何层
+
 ## Interaction Model
 
 `resolveSceneInteractionFrame()` 将 store 状态解析为可复用的 `SceneInteractionFrame`：
@@ -153,6 +185,14 @@ src/
 | 指向 | 局部牵引 | 指尖光球和牵引弧 | 锁定序列并发出双向扫描脉冲 | 锁定最近节点并沿相邻四边传播 | 局部引力透镜和牵引弧 |
 | 双拳 | 聚能 | 中心核心与环带尺度 | 双手距离控制链体长度与扭转 | 双手距离与中点控制四维尺度和投影角 | 中心奇点与吸积盘尺度 |
 | 稳定后张掌 | 爆发 | 中心轨道爆发 | 复制解旋波由激活位点向两端推进 | 确定性碎裂并沿原边重组 | 光子环、冲击波和喷流爆发 |
+
+| 输入 | 能量球 | 能量纽结 | 黄金螺旋 | 旋臂星系 |
+|---|---|---|---|---|
+| 握拳 | 压缩双层球壳 | 收紧纽结并加速 | 向种子回卷 | 收紧旋臂并提高核心转速 |
+| 张掌 | 释放径向能量波 | 展开三股轨迹 | 推进增长前沿 | 释放盘面密度波 |
+| 指向 | 局部透镜牵引 | 选择最近曲线参数并传播 | 扫描最近尺度节点 | 局部引力扰动 |
+| 双手 | 跨度控制壳层、中点控制倾角 | 跨度控制展幅、中点控制倾角 | 跨度控制尺度、中点控制倾角 | 跨度控制盘面、中点控制倾角与作用中心 |
+| 稳定后张掌 | 壳层外爆并重组 | 拓扑外爆并重组 | 生长外爆并回归比例 | 旋臂外爆、冲击波和重组 |
 
 ### Core State Machine
 
@@ -193,6 +233,7 @@ npx tsc --noEmit -p tsconfig.app.json
 npm test
 npm run lint
 npm run build
+git diff --check
 ```
 
-Playwright 配置覆盖桌面、手机竖屏和手机横屏，并提供场景库、异步切换、HUD 布局、画布像素和截图基线。视觉检查通过 `PLAYWRIGHT_VISUAL=1` 显式启用；摄像头手势仍需浏览器实机覆盖短暂丢失、双手距离极值和关闭恢复。
+Playwright 配置覆盖桌面、手机竖屏和手机横屏，并验证 8 场景目录、异步切换、S-01 至 S-08 HUD、布局、画布像素和截图基线。视觉检查通过 `PLAYWRIGHT_VISUAL=1` 显式启用；摄像头手势仍需浏览器实机覆盖短暂丢失、双手距离极值和关闭恢复。

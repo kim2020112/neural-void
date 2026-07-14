@@ -1,5 +1,4 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
-import { ParticleUniverse } from '../particles/ParticleUniverse'
 import { SATURN_BLOOM, SATURN_CAMERA, SATURN_COUNTS } from '../particles/saturn/saturnTypes'
 import { DNA_BLOOM, DNA_CAMERA, DNA_COUNTS } from '../particles/dna/dnaTypes'
 import {
@@ -12,6 +11,10 @@ import {
   HYPERCUBE_CAMERA,
   HYPERCUBE_COUNTS,
 } from '../particles/hypercube/hypercubeTypes'
+import { QUANTUM_BLOOM, QUANTUM_CAMERA, QUANTUM_COUNTS } from '../particles/quantum/quantumTypes'
+import { KNOT_BLOOM, KNOT_CAMERA, KNOT_COUNTS } from '../particles/knot/knotTypes'
+import { SPIRAL_BLOOM, SPIRAL_CAMERA, SPIRAL_COUNTS } from '../particles/spiral/spiralTypes'
+import { GALAXY_BLOOM, GALAXY_CAMERA, GALAXY_COUNTS } from '../particles/galaxy/galaxyTypes'
 import type { ParticleShape } from '../particles/shapes/types'
 import type { InteractionMode } from '../store/appStore'
 
@@ -57,12 +60,32 @@ const hypercubeRenderer = defineLazyRenderer(
   () => import('../particles/hypercube/HypercubeSystem'),
   (module) => module.HypercubeSystem,
 )
+const quantumRenderer = defineLazyRenderer(
+  () => import('../particles/quantum/QuantumSystem'),
+  (module) => module.QuantumSystem,
+)
+const knotRenderer = defineLazyRenderer(
+  () => import('../particles/knot/KnotSystem'),
+  (module) => module.KnotSystem,
+)
+const spiralRenderer = defineLazyRenderer(
+  () => import('../particles/spiral/SpiralSystem'),
+  (module) => module.SpiralSystem,
+)
+const galaxyRenderer = defineLazyRenderer(
+  () => import('../particles/galaxy/GalaxySystem'),
+  (module) => module.GalaxySystem,
+)
 
-const SCENE_PRELOADERS: Partial<Record<ParticleShape, () => Promise<void>>> = {
+const SCENE_PRELOADERS: Record<ParticleShape, () => Promise<void>> = {
   saturn_ring: saturnRenderer.preload,
   dna_helix: dnaRenderer.preload,
   hypercube: hypercubeRenderer.preload,
   singularity: singularityRenderer.preload,
+  quantum_sphere: quantumRenderer.preload,
+  knot_torus: knotRenderer.preload,
+  golden_spiral: spiralRenderer.preload,
+  galaxy: galaxyRenderer.preload,
 }
 
 export interface CameraPose {
@@ -117,7 +140,7 @@ export interface SceneHudProfile {
   controlLabel: string
   structureCount: number
   structureLabel: string
-  diagram: 'orbit' | 'dna' | 'hypercube' | 'singularity'
+  diagram: 'orbit' | 'dna' | 'hypercube' | 'singularity' | 'quantum' | 'knot' | 'spiral' | 'galaxy'
   description: readonly string[]
   interactions: Record<InteractionMode, GestureHudProfile>
 }
@@ -131,40 +154,6 @@ export interface SceneProfile {
   post: PostProfile
   atmosphere: AtmosphereProfile
   hud?: SceneHudProfile
-}
-
-const DEFAULT_ATMOSPHERE: AtmosphereProfile = {
-  focus: 0,
-  count: 520,
-  pulseScale: 1,
-  energyBase: 0,
-  energyScale: 1,
-  turbulenceBase: 0,
-  turbulenceScale: 1,
-  rotationSpeed: 0.01,
-  rotationTilt: 0.03,
-  verticalDrift: 0.2,
-}
-
-function particleProfile(
-  id: ParticleShape,
-  camera: CameraPose,
-  post: Partial<PostProfile> = {},
-): SceneProfile {
-  return {
-    id,
-    Renderer: ParticleUniverse,
-    camera,
-    fogDensity: 0.012,
-    post: {
-      bloomBias: 0,
-      contrastBias: 0.02,
-      brightnessBias: -0.012,
-      vignetteBias: 0.02,
-      ...post,
-    },
-    atmosphere: DEFAULT_ATMOSPHERE,
-  }
 }
 
 const saturnCamera: CameraPose = {
@@ -192,6 +181,42 @@ const hypercubeCamera: CameraPose = {
   sway: HYPERCUBE_CAMERA.driftX,
   lift: HYPERCUBE_CAMERA.driftY,
   depth: HYPERCUBE_CAMERA.driftZ,
+}
+
+const quantumCamera: CameraPose = {
+  position: QUANTUM_CAMERA.position,
+  lookAt: QUANTUM_CAMERA.lookAt,
+  fov: QUANTUM_CAMERA.fov,
+  sway: QUANTUM_CAMERA.driftX,
+  lift: QUANTUM_CAMERA.driftY,
+  depth: QUANTUM_CAMERA.driftZ,
+}
+
+const knotCamera: CameraPose = {
+  position: KNOT_CAMERA.position,
+  lookAt: KNOT_CAMERA.lookAt,
+  fov: KNOT_CAMERA.fov,
+  sway: KNOT_CAMERA.driftX,
+  lift: KNOT_CAMERA.driftY,
+  depth: KNOT_CAMERA.driftZ,
+}
+
+const spiralCamera: CameraPose = {
+  position: SPIRAL_CAMERA.position,
+  lookAt: SPIRAL_CAMERA.lookAt,
+  fov: SPIRAL_CAMERA.fov,
+  sway: SPIRAL_CAMERA.driftX,
+  lift: SPIRAL_CAMERA.driftY,
+  depth: SPIRAL_CAMERA.driftZ,
+}
+
+const galaxyCamera: CameraPose = {
+  position: GALAXY_CAMERA.position,
+  lookAt: GALAXY_CAMERA.lookAt,
+  fov: GALAXY_CAMERA.fov,
+  sway: GALAXY_CAMERA.driftX,
+  lift: GALAXY_CAMERA.driftY,
+  depth: GALAXY_CAMERA.driftZ,
 }
 
 export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
@@ -243,12 +268,102 @@ export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
       },
     },
   },
-  quantum_sphere: particleProfile('quantum_sphere', {
-    position: [1.8, 2, 12.1], lookAt: [0, 0.52, 0], fov: 40, sway: 0.08, lift: 0.06, depth: 0.08,
-  }),
-  knot_torus: particleProfile('knot_torus', {
-    position: [4.6, 2.4, 11.6], lookAt: [0, 0.15, 0], fov: 39, sway: 0.08, lift: 0.05, depth: 0.07,
-  }, { contrastBias: 0.03 }),
+  quantum_sphere: {
+    id: 'quantum_sphere',
+    Renderer: quantumRenderer.Renderer,
+    camera: quantumCamera,
+    heroCamera: quantumCamera,
+    fogDensity: 0.0075,
+    post: {
+      bloom: QUANTUM_BLOOM,
+      bloomBias: 0,
+      contrastBias: 0.052,
+      brightnessBias: -0.022,
+      vignetteBias: 0.05,
+    },
+    atmosphere: {
+      focus: 0.86,
+      count: 150,
+      pulseScale: 0.42,
+      energyBase: 0.03,
+      energyScale: 0.05,
+      turbulenceBase: 0.022,
+      turbulenceScale: 0.035,
+      rotationSpeed: 0.003,
+      rotationTilt: 0.008,
+      verticalDrift: 0.03,
+    },
+    hud: {
+      index: '05',
+      code: 'S-05 / QUANTUM CORE',
+      title: '能量球',
+      titleEn: 'QUANTUM SPHERE',
+      particleCount: QUANTUM_COUNTS.total,
+      controlLabel: 'FIELD CONTROL',
+      structureCount: 5,
+      structureLabel: 'ENERGY LAYERS',
+      diagram: 'quantum',
+      description: ['致密核心被双层 Fibonacci 球壳包围', '三组轨道沿交错平面持续旋进', '能量波由核心穿过壳层向外传播'],
+      interactions: {
+        idle: { cn: '稳定振荡', en: 'FIELD EQUILIBRIUM', color: '#42ddff' },
+        attract: { cn: '握拳压缩', en: 'SHELL COMPRESSION', color: '#9a7dff' },
+        repel: { cn: '掌心脉冲', en: 'RADIAL PULSE', color: '#65ffbd' },
+        point: { cn: '局部透镜', en: 'LOCAL LENS', color: '#ff706a' },
+        duality: { cn: '双手定标', en: 'DUAL SCALE FIELD', color: '#c7f6ff' },
+        forming_void: { cn: '核心聚能', en: 'CORE CHARGING', color: '#9a7dff' },
+        void_core: { cn: '量子锁定', en: 'QUANTUM LOCKED', color: '#f6fdff' },
+        exploding: { cn: '壳层爆发', en: 'SHELL DISCHARGE', color: '#ff706a' },
+      },
+    },
+  },
+  knot_torus: {
+    id: 'knot_torus',
+    Renderer: knotRenderer.Renderer,
+    camera: knotCamera,
+    heroCamera: knotCamera,
+    fogDensity: 0.007,
+    post: {
+      bloom: KNOT_BLOOM,
+      bloomBias: 0,
+      contrastBias: 0.06,
+      brightnessBias: -0.024,
+      vignetteBias: 0.052,
+    },
+    atmosphere: {
+      focus: 0.8,
+      count: 135,
+      pulseScale: 0.35,
+      energyBase: 0.025,
+      energyScale: 0.042,
+      turbulenceBase: 0.028,
+      turbulenceScale: 0.05,
+      rotationSpeed: 0.0026,
+      rotationTilt: 0.007,
+      verticalDrift: 0.026,
+    },
+    hud: {
+      index: '06',
+      code: 'S-06 / ENTANGLED FLOW',
+      title: '能量纽结',
+      titleEn: 'TORUS KNOT',
+      particleCount: KNOT_COUNTS.total,
+      controlLabel: 'FLOW CONTROL',
+      structureCount: 3,
+      structureLabel: 'PHASE STRANDS',
+      diagram: 'knot',
+      description: ['三股相位错位轨迹形成闭合纽结', '六处投影交叉点保持高能亮度', '传播火花沿曲线参数双向推进'],
+      interactions: {
+        idle: { cn: '相位巡航', en: 'PHASE DRIFT', color: '#ffae45' },
+        attract: { cn: '握拳收紧', en: 'KNOT TIGHTEN', color: '#ff7b3d' },
+        repel: { cn: '掌心展开', en: 'STRAND UNFOLD', color: '#27e5ff' },
+        point: { cn: '曲线传播', en: 'PATH PROPAGATION', color: '#ff63bd' },
+        duality: { cn: '双手展幅', en: 'DUAL SPAN', color: '#ffd071' },
+        forming_void: { cn: '流场聚能', en: 'FLOW CHARGING', color: '#ff8f45' },
+        void_core: { cn: '纽结锁定', en: 'KNOT LOCKED', color: '#fff8e5' },
+        exploding: { cn: '拓扑释放', en: 'TOPOLOGY BURST', color: '#ff63bd' },
+      },
+    },
+  },
   dna_helix: {
     id: 'dna_helix',
     Renderer: dnaRenderer.Renderer,
@@ -311,9 +426,54 @@ export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
       },
     },
   },
-  golden_spiral: particleProfile('golden_spiral', {
-    position: [3.1, 2, 12.2], lookAt: [0.2, 0.18, 0], fov: 37, sway: 0.08, lift: 0.04, depth: 0.06,
-  }, { bloomBias: -0.18, brightnessBias: -0.02 }),
+  golden_spiral: {
+    id: 'golden_spiral',
+    Renderer: spiralRenderer.Renderer,
+    camera: spiralCamera,
+    heroCamera: spiralCamera,
+    fogDensity: 0.0072,
+    post: {
+      bloom: SPIRAL_BLOOM,
+      bloomBias: 0,
+      contrastBias: 0.058,
+      brightnessBias: -0.026,
+      vignetteBias: 0.05,
+    },
+    atmosphere: {
+      focus: 0.78,
+      count: 145,
+      pulseScale: 0.34,
+      energyBase: 0.026,
+      energyScale: 0.044,
+      turbulenceBase: 0.02,
+      turbulenceScale: 0.032,
+      rotationSpeed: 0.0024,
+      rotationTilt: 0.006,
+      verticalDrift: 0.024,
+    },
+    hud: {
+      index: '07',
+      code: 'S-07 / PHI GROWTH',
+      title: '黄金螺旋',
+      titleEn: 'GOLDEN SPIRAL',
+      particleCount: SPIRAL_COUNTS.total,
+      controlLabel: 'GROWTH CONTROL',
+      structureCount: SPIRAL_COUNTS.scaleNodeCount,
+      structureLabel: 'SCALE NODES',
+      diagram: 'spiral',
+      description: ['黄金对数半径沿四条伴生丝增长', '十三个尺度节点标记连续比例变化', '增长前沿从种子向外依次点亮'],
+      interactions: {
+        idle: { cn: '比例生长', en: 'PHI EVOLUTION', color: '#d9ff47' },
+        attract: { cn: '握拳回卷', en: 'SEED REWIND', color: '#ffad32' },
+        repel: { cn: '掌心推进', en: 'GROWTH FRONT', color: '#52ff9b' },
+        point: { cn: '尺度扫描', en: 'SCALE SCAN', color: '#59e4ff' },
+        duality: { cn: '双手定标', en: 'DUAL SCALING', color: '#efff9c' },
+        forming_void: { cn: '种子聚能', en: 'SEED CHARGING', color: '#ffbd42' },
+        void_core: { cn: '比例锁定', en: 'PHI LOCKED', color: '#fffce8' },
+        exploding: { cn: '生长释放', en: 'GROWTH RELEASE', color: '#52ff9b' },
+      },
+    },
+  },
   hypercube: {
     id: 'hypercube',
     Renderer: hypercubeRenderer.Renderer,
@@ -362,9 +522,54 @@ export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
       },
     },
   },
-  galaxy: particleProfile('galaxy', {
-    position: [2.7, 3, 14.6], lookAt: [0, 0.28, 0], fov: 32, sway: 0.08, lift: 0.05, depth: 0.08,
-  }, { contrastBias: 0.04, brightnessBias: -0.028, vignetteBias: 0.04 }),
+  galaxy: {
+    id: 'galaxy',
+    Renderer: galaxyRenderer.Renderer,
+    camera: galaxyCamera,
+    heroCamera: galaxyCamera,
+    fogDensity: 0.0055,
+    post: {
+      bloom: GALAXY_BLOOM,
+      bloomBias: 0,
+      contrastBias: 0.068,
+      brightnessBias: -0.032,
+      vignetteBias: 0.065,
+    },
+    atmosphere: {
+      focus: 0.92,
+      count: 120,
+      pulseScale: 0.24,
+      energyBase: 0.02,
+      energyScale: 0.03,
+      turbulenceBase: 0.018,
+      turbulenceScale: 0.02,
+      rotationSpeed: 0.0018,
+      rotationTilt: 0.005,
+      verticalDrift: 0.018,
+    },
+    hud: {
+      index: '08',
+      code: 'S-08 / GALACTIC WAVE',
+      title: '旋臂星系',
+      titleEn: 'SPIRAL GALAXY',
+      particleCount: GALAXY_COUNTS.total,
+      controlLabel: 'GRAVITY CONTROL',
+      structureCount: GALAXY_COUNTS.armCount,
+      structureLabel: 'LOGARITHMIC ARMS',
+      diagram: 'galaxy',
+      description: ['核球与盘面在差速旋转中保持分层', '双对数旋臂维持半周相位差', '暗尘带沿密度波前缘切过星光'],
+      interactions: {
+        idle: { cn: '差速巡航', en: 'DIFFERENTIAL DRIFT', color: '#77ddff' },
+        attract: { cn: '握拳收臂', en: 'ARM TIGHTEN', color: '#ff747d' },
+        repel: { cn: '掌心释波', en: 'DENSITY WAVE', color: '#ffd27a' },
+        point: { cn: '局部引力', en: 'GRAVITY PERTURBATION', color: '#54e8ff' },
+        duality: { cn: '双手定盘', en: 'DUAL DISK FIELD', color: '#c8b7ff' },
+        forming_void: { cn: '核球聚能', en: 'BULGE CHARGING', color: '#ff8a6b' },
+        void_core: { cn: '星核锁定', en: 'GALACTIC CORE LOCKED', color: '#fff4dc' },
+        exploding: { cn: '旋臂爆发', en: 'GALACTIC BURST', color: '#ff747d' },
+      },
+    },
+  },
   singularity: {
     id: 'singularity',
     Renderer: singularityRenderer.Renderer,
@@ -420,5 +625,5 @@ export function getSceneProfile(id: ParticleShape): SceneProfile {
 }
 
 export function preloadSceneRenderer(id: ParticleShape): Promise<void> {
-  return SCENE_PRELOADERS[id]?.() ?? Promise.resolve()
+  return SCENE_PRELOADERS[id]()
 }

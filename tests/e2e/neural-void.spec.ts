@@ -1,16 +1,20 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { PNG } from 'pngjs'
 
-const FLAGSHIP_SCENES = [
+const SCENES = [
   ['saturn_ring', 'S-01 / ORBITAL FORGE'],
   ['dna_helix', 'S-02 / GENETIC LATTICE'],
   ['hypercube', 'S-03 / DIMENSIONAL LATTICE'],
   ['singularity', 'S-04 / GRAVITY WELL'],
+  ['quantum_sphere', 'S-05 / QUANTUM CORE'],
+  ['knot_torus', 'S-06 / ENTANGLED FLOW'],
+  ['golden_spiral', 'S-07 / PHI GROWTH'],
+  ['galaxy', 'S-08 / GALACTIC WAVE'],
 ] as const
 
 const RUN_VISUAL_E2E = process.env.PLAYWRIGHT_VISUAL === '1'
 
-type FlagshipScene = typeof FLAGSHIP_SCENES[number][0]
+type SceneId = typeof SCENES[number][0]
 
 interface CanvasSample {
   pixels: number[]
@@ -31,7 +35,7 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-async function activateApp(page: Page, shape: FlagshipScene = 'saturn_ring') {
+async function activateApp(page: Page, shape: SceneId = 'saturn_ring') {
   await page.goto('/')
   await page.evaluate(async (nextShape) => {
     const moduleUrl = '/src/store/appStore.ts'
@@ -52,7 +56,7 @@ async function activateApp(page: Page, shape: FlagshipScene = 'saturn_ring') {
     element.style.display = 'none'
   })
 
-  const expectedCode = FLAGSHIP_SCENES.find(([id]) => id === shape)?.[1]
+  const expectedCode = SCENES.find(([id]) => id === shape)?.[1]
   await expect(page.getByTestId('scene-hud-left')).toContainText(expectedCode ?? '')
   await expect.poll(async () => (await sampleCanvas(page)).centerBrightPixels).toBeGreaterThan(4)
   await page.waitForTimeout(900)
@@ -66,12 +70,12 @@ async function openSceneLibrary(page: Page) {
   return library
 }
 
-async function switchScene(page: Page, shape: FlagshipScene) {
+async function switchScene(page: Page, shape: SceneId) {
   await openSceneLibrary(page)
   const button = page.locator(`[data-scene-id="${shape}"]`)
   await button.click()
   await expect(button).toHaveAttribute('aria-pressed', 'true')
-  const expectedCode = FLAGSHIP_SCENES.find(([id]) => id === shape)?.[1]
+  const expectedCode = SCENES.find(([id]) => id === shape)?.[1]
   await expect(page.getByTestId('scene-hud-left')).toContainText(expectedCode ?? '')
   await expect.poll(async () => (await sampleCanvas(page)).centerBrightPixels).toBeGreaterThan(4)
   await page.waitForTimeout(650)
@@ -165,14 +169,12 @@ async function expectNoOverlap(page: Page, firstTestId: string, secondTestId: st
   expect(overlaps(first!, second!)).toBe(false)
 }
 
-test('scene library derives featured and lab sections and keeps touch targets stable', async ({ page }) => {
+test('scene library shows eight official scenes without a lab toggle and keeps touch targets stable', async ({ page }) => {
   await activateApp(page)
   const library = await openSceneLibrary(page)
-  await expect(library.locator('[data-scene-id]')).toHaveCount(4)
-  await expect(page.getByTestId('lab-toggle')).toHaveAttribute('aria-expanded', 'false')
-  await page.getByTestId('lab-toggle').click()
-  await expect(page.getByTestId('lab-toggle')).toHaveAttribute('aria-expanded', 'true')
   await expect(library.locator('[data-scene-id]')).toHaveCount(8)
+  await expect(library).toContainText('8 场景')
+  await expect(page.getByTestId('lab-toggle')).toHaveCount(0)
 
   const buttonSizes = await page.locator('button:visible').evaluateAll((buttons) =>
     buttons.map((button) => {
@@ -184,10 +186,9 @@ test('scene library derives featured and lab sections and keeps touch targets st
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
-test('lab scenes reopen expanded and mobile closes only after a successful switch', async ({ page }) => {
+test('mobile closes only after a successful official scene switch', async ({ page }) => {
   await activateApp(page)
   await openSceneLibrary(page)
-  await page.getByTestId('lab-toggle').click()
   await page.locator('[data-scene-id="quantum_sphere"]').click()
   const isMobile = (page.viewportSize()?.width ?? 1000) <= 760
 
@@ -197,8 +198,8 @@ test('lab scenes reopen expanded and mobile closes only after a successful switc
   } else {
     await expect(page.getByTestId('scene-library')).toBeVisible()
   }
-  await expect(page.getByTestId('lab-toggle')).toHaveAttribute('aria-expanded', 'true')
   await expect(page.locator('[data-scene-id="quantum_sphere"]')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('scene-hud-left')).toContainText('S-05 / QUANTUM CORE')
 })
 
 test('async renderer loading preserves the active scene on failure and supports retry', async ({ page }, testInfo) => {
@@ -219,7 +220,7 @@ test('async renderer loading preserves the active scene on failure and supports 
 })
 
 test('HUD and controls remain separated within the viewport', async ({ page }) => {
-  await activateApp(page, 'hypercube')
+  await activateApp(page, 'galaxy')
   await expectNoOverlap(page, 'top-left-controls', 'scene-hud-top')
   await expectNoOverlap(page, 'top-right-controls', 'scene-hud-top')
   await expectNoOverlap(page, 'scene-hud-left', 'scene-hud-bottom')
@@ -236,13 +237,22 @@ test('HUD and controls remain separated within the viewport', async ({ page }) =
   }
 })
 
-test('featured canvases are nonblank, animated, centered, and visually distinct', async ({ page }, testInfo) => {
+test('all eight scenes expose stable S-01 through S-08 HUD identities', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop')
+  await activateApp(page)
+  for (const [shape, code] of SCENES) {
+    if (shape !== 'saturn_ring') await switchScene(page, shape)
+    await expect(page.getByTestId('scene-hud-left')).toContainText(code)
+  }
+})
+
+test('official canvases are nonblank, animated, centered, and visually distinct', async ({ page }, testInfo) => {
   test.skip(!RUN_VISUAL_E2E, 'Set PLAYWRIGHT_VISUAL=1 to run visual pixel checks.')
   test.skip(testInfo.project.name !== 'desktop')
   await activateApp(page)
   const signatures: number[][] = []
 
-  for (const [shape] of FLAGSHIP_SCENES) {
+  for (const [shape] of SCENES) {
     if (shape !== 'saturn_ring') await switchScene(page, shape)
     const first = await sampleCanvas(page)
     await page.waitForTimeout(320)
@@ -260,7 +270,7 @@ test('featured canvases are nonblank, animated, centered, and visually distinct'
   }
 })
 
-for (const [shape] of FLAGSHIP_SCENES) {
+for (const [shape] of SCENES) {
   test(`visual baseline: ${shape}`, async ({ page }, testInfo: TestInfo) => {
     test.skip(!RUN_VISUAL_E2E, 'Set PLAYWRIGHT_VISUAL=1 to update visual baselines.')
     await activateApp(page, shape)
