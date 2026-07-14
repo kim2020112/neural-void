@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { getSceneProfile } from '../scenes/sceneProfiles'
 import { useAppStore } from '../store/appStore'
 import type { GestureType, Vec3 } from '../store/appStore'
 
@@ -118,6 +119,7 @@ export function TrackingCursorOverlay() {
       }
 
       const saturnMode = state.particleShape === 'saturn_ring'
+      const sceneHasHud = Boolean(getSceneProfile(state.particleShape).hud)
 
       updateCursor(
         primaryRef.current,
@@ -145,8 +147,7 @@ export function TrackingCursorOverlay() {
       )
 
       if (hintRef.current) {
-        // Saturn mode uses SaturnSceneHud top badge instead
-        if (saturnMode) {
+        if (sceneHasHud) {
           hintRef.current.style.opacity = '0'
         } else {
           hintRef.current.style.opacity = '1'

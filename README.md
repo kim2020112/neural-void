@@ -4,14 +4,16 @@
 
 ## 当前能力
 
-- 8 个可切换粒子场景，默认场景为土星环
-- 土星环、双螺旋与引力奇点使用独立的几何、shader、镜头、Bloom 和 HUD
+- 8 个可切换粒子场景，按 4 个旗舰场景与 4 个 Lab 形态分层，默认场景为土星环
+- 土星环、双螺旋、四维立方与引力奇点使用独立的几何、shader、镜头、Bloom 和 HUD
 - 双螺旋支持链体收束、掌心解旋、序列扫描、双手拉伸和复制解旋波
+- 四维立方使用 14,400 个粒子构成 16 个节点与 32 条四维边，支持维度折叠、展开脉冲、节点传播与碎裂重组
 - 握拳、张掌、指向三种单手控制
 - 双拳聚能、双手距离控制、单拳长按降级和稳定核心后的张掌爆发
 - 展示/交互双视角、摄像头状态、跟踪指标和响应式场景 HUD
 - WebGL 粒子渲染，Canvas DPR 上限为 1.25
 - 专用场景按需加载，切换前预取对应渲染模块
+- 场景库默认展示 2×2 旗舰网格，Lab 按需展开，移动端成功切换后自动收起
 
 ## 本地运行
 
@@ -37,8 +39,17 @@ npm run dev
 
 ```bash
 npx tsc --noEmit -p tsconfig.app.json
+npm test
 npm run lint
 npm run build
+```
+
+Playwright 功能基线使用本地 HTTPS。首次运行先安装 Chromium；也可通过 `PLAYWRIGHT_CHANNEL=msedge` 使用本机 Edge。视觉像素和截图检查为显式 opt-in：
+
+```powershell
+npx playwright install chromium
+$env:PLAYWRIGHT_VISUAL='1'
+npm run test:e2e -- --update-snapshots
 ```
 
 ## 文档

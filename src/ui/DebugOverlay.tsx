@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import { SHAPE_OPTIONS } from '../particles/shapes/catalog'
 import type { GestureType, InteractionMode, TrackingStatus } from '../store/appStore'
-import type { ParticleShape } from '../particles/shapes/types'
-import { preloadSceneRenderer } from '../scenes/sceneProfiles'
+import { SceneLibrary } from './SceneLibrary'
 
 function Meter({ label, value, tint }: { label: string; value: number; tint: string }) {
   return (
@@ -128,15 +127,12 @@ export function DebugOverlay() {
   const voidCorePhase = useAppStore((state) => state.voidCorePhase)
   const voidCoreStrength = useAppStore((state) => state.voidCoreStrength)
   const particleShape = useAppStore((state) => state.particleShape)
-  const setParticleShape = useAppStore((state) => state.setParticleShape)
   const interactionState = useAppStore((state) => state.interactionState)
   const cinematicState = useAppStore((state) => state.cinematicState)
   const [hudOpen, setHudOpen] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
-  const [pendingShape, setPendingShape] = useState<ParticleShape | null>(null)
-  const [failedShape, setFailedShape] = useState<ParticleShape | null>(null)
 
   const halo = useMemo(
     () => `0 0 ${10 + cinematicState.energy * 12}px rgba(125,224,255,0.12), 0 0 ${20 + cinematicState.shock * 18}px rgba(255,211,107,0.06)`,
@@ -147,30 +143,12 @@ export function DebugOverlay() {
     [particleShape],
   )
 
-  const warmScene = (shape: ParticleShape) => {
-    void preloadSceneRenderer(shape).catch(() => undefined)
-  }
-
-  const selectScene = async (shape: ParticleShape) => {
-    if (shape === particleShape || pendingShape) return
-    setPendingShape(shape)
-    setFailedShape(null)
-    try {
-      await preloadSceneRenderer(shape)
-      setParticleShape(shape)
-    } catch {
-      setFailedShape(shape)
-    } finally {
-      setPendingShape(null)
-    }
-  }
-
   if (phase !== 'active') return null
 
   return (
     <div style={styles.root}>
       {!cameraEnabled && (
-        <div style={styles.offlineVeil}>
+        <div style={styles.offlineVeil} data-testid="offline-veil">
           <div style={styles.offlinePanel}>
             <div style={styles.offlineEyebrow}>输入离线</div>
             <div style={styles.offlineTitle}>摄像头已关闭</div>
@@ -179,19 +157,32 @@ export function DebugOverlay() {
         </div>
       )}
 
-      <div style={styles.topLeftDock}>
-        <button style={styles.dockButton} onClick={() => setHudOpen((value) => !value)}>
+      <div style={styles.topLeftDock} data-testid="top-left-controls">
+        <button
+          type="button"
+          style={styles.dockButton}
+          aria-controls="runtime-status-panel"
+          aria-expanded={hudOpen}
+          onClick={() => setHudOpen((value) => !value)}
+        >
           {hudOpen ? '收起状态' : '状态'}
         </button>
         {hudOpen && (
-          <button style={styles.ghostButton} onClick={() => setDetailOpen((value) => !value)}>
+          <button type="button" style={styles.ghostButton} aria-pressed={detailOpen} onClick={() => setDetailOpen((value) => !value)}>
             {detailOpen ? '简略' : '详细'}
           </button>
         )}
       </div>
 
-      <div style={styles.topRightDock}>
-        <button style={styles.dockButton} onClick={() => setLibraryOpen((value) => !value)}>
+      <div style={styles.topRightDock} data-testid="top-right-controls">
+        <button
+          type="button"
+          data-testid="scene-library-toggle"
+          style={styles.dockButton}
+          aria-controls="scene-library-panel"
+          aria-expanded={libraryOpen}
+          onClick={() => setLibraryOpen((value) => !value)}
+        >
           {libraryOpen ? '收起场景' : '场景'}
         </button>
         <button
@@ -203,6 +194,8 @@ export function DebugOverlay() {
               ? '0 0 20px rgba(125,224,255,0.11)'
               : '0 0 20px rgba(255,211,107,0.1)',
           }}
+          type="button"
+          aria-pressed={galleryMode}
           onClick={() => setGalleryMode(!galleryMode)}
         >
           <span style={styles.modeLabel}>模式</span>
@@ -219,6 +212,8 @@ export function DebugOverlay() {
               ? '0 0 20px rgba(125,224,255,0.12)'
               : '0 0 24px rgba(255,211,107,0.14)',
           }}
+          type="button"
+          aria-pressed={cameraEnabled}
           onClick={() => setCameraEnabled(!cameraEnabled)}
         >
           <span style={styles.cameraGlyphWrap}>
@@ -234,7 +229,7 @@ export function DebugOverlay() {
       </div>
 
       {hudOpen && (
-        <div style={{ ...styles.leftPanel, boxShadow: halo }}>
+        <div id="runtime-status-panel" style={{ ...styles.leftPanel, boxShadow: halo }}>
           <div style={styles.panelHeader}>
             <div>
               <div style={styles.eyebrow}>星尘引擎</div>
@@ -291,65 +286,22 @@ export function DebugOverlay() {
         </div>
       )}
 
-      {libraryOpen && (
-        <div style={styles.rightPanel}>
-          <div style={styles.panelHeaderCompact}>
-            <div>
-              <div style={styles.eyebrow}>粒子形态</div>
-              <div style={styles.panelTitle}>{activeShapeMeta?.label ?? '未命名结构'}</div>
-            </div>
-            <div style={styles.inlineBadgeAlt}>点击切换</div>
-          </div>
-          <div style={styles.shapeGrid}>
-            {SHAPE_OPTIONS.map((shape) => {
-              const active = particleShape === shape.id
-              const pending = pendingShape === shape.id
-              const failed = failedShape === shape.id
-              return (
-                <button
-                  key={shape.id}
-                  aria-busy={pending}
-                  aria-pressed={active}
-                  disabled={pendingShape !== null}
-                  style={{
-                    ...styles.shapeCard,
-                    borderColor: active ? shape.accent : 'rgba(255,255,255,0.08)',
-                    background: active ? 'rgba(255,255,255,0.08)' : 'rgba(4, 8, 20, 0.55)',
-                    boxShadow: active ? `0 0 16px ${shape.accent}26` : 'none',
-                    cursor: pending ? 'wait' : pendingShape ? 'default' : 'pointer',
-                    opacity: pendingShape && !pending ? 0.58 : 1,
-                  }}
-                  onPointerEnter={() => warmScene(shape.id)}
-                  onPointerDown={() => warmScene(shape.id)}
-                  onFocus={() => warmScene(shape.id)}
-                  onClick={() => { void selectScene(shape.id) }}
-                >
-                  <span style={{ ...styles.shapeAccent, background: shape.accent }} />
-                  <strong style={styles.shapeLabel}>{shape.label}</strong>
-                  <span style={styles.shapeHint}>
-                    {pending ? '正在加载场景' : failed ? '加载失败，点击重试' : shape.hint}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
+      {libraryOpen && <SceneLibrary onRequestClose={() => setLibraryOpen(false)} />}
 
-      <div style={styles.bottomDock}>
+      <div style={styles.bottomDock} data-testid="bottom-controls">
         {!guideOpen ? (
-          <button style={styles.dockButton} onClick={() => setGuideOpen(true)}>
+          <button type="button" style={styles.dockButton} aria-controls="gesture-guide" aria-expanded={false} onClick={() => setGuideOpen(true)}>
             手势
           </button>
         ) : (
-          <div style={styles.guidePanel}>
+          <div id="gesture-guide" style={styles.guidePanel}>
             <div style={styles.guideRow}>
               <div style={styles.guideChip}>握拳：聚拢</div>
               <div style={styles.guideChip}>张开手掌：扩散</div>
               <div style={styles.guideChip}>伸出食指：牵引</div>
               <div style={styles.guideChip}>双手握拳：汇聚</div>
             </div>
-            <button style={styles.ghostButton} onClick={() => setGuideOpen(false)}>
+            <button type="button" style={styles.ghostButton} aria-expanded={true} onClick={() => setGuideOpen(false)}>
               收起
             </button>
           </div>
@@ -431,7 +383,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 58,
-    height: 38,
+    minHeight: 44,
     padding: '0 14px',
     borderRadius: 999,
     border: '1px solid rgba(255,255,255,0.1)',
@@ -446,7 +398,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 34,
+    minHeight: 44,
     padding: '0 12px',
     borderRadius: 999,
     border: '1px solid rgba(255,255,255,0.08)',
@@ -472,29 +424,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 10,
     pointerEvents: 'auto',
   },
-  rightPanel: {
-    position: 'absolute',
-    top: 64,
-    right: 18,
-    width: 254,
-    padding: 14,
-    borderRadius: 18,
-    background: glass,
-    border: '1px solid rgba(255,211,107,0.14)',
-    backdropFilter: 'blur(18px)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 12,
-    pointerEvents: 'auto',
-    zIndex: 6,
-  },
   panelHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  panelHeaderCompact: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
@@ -513,30 +443,12 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#f4f8ff',
     letterSpacing: '0.04em',
   },
-  panelTitle: {
-    marginTop: 5,
-    fontSize: 16,
-    lineHeight: 1.15,
-    fontWeight: 700,
-    color: '#f4f8ff',
-    letterSpacing: '0.04em',
-  },
   inlineBadge: {
     padding: '6px 10px',
     borderRadius: 999,
     background: 'rgba(125,224,255,0.1)',
     border: '1px solid rgba(125,224,255,0.16)',
     color: '#dff7ff',
-    fontSize: 10,
-    letterSpacing: '0.12em',
-    whiteSpace: 'nowrap',
-  },
-  inlineBadgeAlt: {
-    padding: '6px 10px',
-    borderRadius: 999,
-    background: 'rgba(255,211,107,0.09)',
-    border: '1px solid rgba(255,211,107,0.15)',
-    color: '#ffe7ac',
     fontSize: 10,
     letterSpacing: '0.12em',
     whiteSpace: 'nowrap',
@@ -609,7 +521,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'flex-start',
     justifyContent: 'center',
     minWidth: 84,
-    height: 38,
+    minHeight: 44,
     padding: '0 14px',
     borderRadius: 999,
     border: '1px solid rgba(255,255,255,0.12)',
@@ -633,6 +545,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 10,
     minWidth: 118,
+    minHeight: 44,
     padding: '8px 10px',
     borderRadius: 18,
     border: '1px solid rgba(255,255,255,0.14)',
@@ -666,43 +579,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     letterSpacing: '0.12em',
     fontWeight: 700,
-  },
-  shapeGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: 8,
-  },
-  shapeCard: {
-    position: 'relative',
-    minHeight: 76,
-    padding: '12px 10px 10px',
-    borderRadius: 14,
-    border: '1px solid rgba(255,255,255,0.08)',
-    textAlign: 'left',
-    background: 'rgba(4, 8, 20, 0.55)',
-    cursor: 'pointer',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 7,
-    color: '#eef4ff',
-  },
-  shapeAccent: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-  },
-  shapeLabel: {
-    fontSize: 13,
-    letterSpacing: '0.05em',
-  },
-  shapeHint: {
-    fontSize: 10,
-    lineHeight: 1.45,
-    color: 'rgba(222, 232, 255, 0.58)',
   },
   bottomDock: {
     position: 'absolute',

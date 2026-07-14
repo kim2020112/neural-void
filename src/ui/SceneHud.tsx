@@ -157,17 +157,79 @@ function DnaDiagram({
   )
 }
 
+function HypercubeDiagram({
+  mode,
+  strength,
+}: {
+  mode: InteractionMode
+  strength: number
+}) {
+  const compressed = mode === 'attract' || mode === 'forming_void' || mode === 'void_core'
+  const expanded = mode === 'repel' || mode === 'exploding'
+  const dual = mode === 'duality' || mode === 'forming_void' || mode === 'void_core'
+  const innerSize = compressed ? 20 + strength * 3 : expanded ? 28 + strength * 6 : 27
+  const innerX = 60 - innerSize * 0.5 + (dual ? strength * 3 : 0)
+  const innerY = 36 - innerSize * 0.5 - (dual ? strength * 2 : 0)
+  const outerX = 34
+  const outerY = 10
+  const outerSize = 52
+  const trace = mode === 'point'
+
+  return (
+    <svg width="120" height="72" viewBox="0 0 120 72" aria-hidden>
+      {mode === 'exploding' && (
+        <rect
+          x={outerX - 4 - strength * 3}
+          y={outerY + 2}
+          width={outerSize + 8 + strength * 6}
+          height={outerSize - 4}
+          fill="none"
+          stroke="rgba(255,107,50,0.38)"
+          strokeWidth="1"
+          strokeDasharray="3 3"
+        />
+      )}
+      <rect x={outerX} y={outerY} width={outerSize} height={outerSize} fill="none" stroke="#8edfff" strokeWidth="1.35" />
+      <rect x={innerX} y={innerY} width={innerSize} height={innerSize} fill="none" stroke="#eafaff" strokeWidth={trace ? 1.8 : 1.2} />
+      <path
+        d={`M${outerX} ${outerY} L${innerX} ${innerY} M${outerX + outerSize} ${outerY} L${innerX + innerSize} ${innerY} M${outerX} ${outerY + outerSize} L${innerX} ${innerY + innerSize} M${outerX + outerSize} ${outerY + outerSize} L${innerX + innerSize} ${innerY + innerSize}`}
+        fill="none"
+        stroke="#ff8a3d"
+        strokeWidth={trace ? 1.7 : 1.05}
+        opacity={trace ? 0.95 : 0.72}
+      />
+      {trace && (
+        <>
+          <circle cx={innerX + innerSize} cy={innerY} r={3.5 + strength * 1.5} fill="none" stroke="#fff7e8" strokeWidth="1.5" />
+          <circle cx={innerX + innerSize} cy={innerY} r="1.8" fill="#ff8a3d" />
+        </>
+      )}
+      {dual && (
+        <>
+          <circle cx="18" cy="36" r="3" fill="#8edfff" />
+          <circle cx="102" cy="36" r="3" fill="#ff8a3d" />
+          <path d="M22 36 H31 M89 36 H98" stroke="rgba(225,244,255,0.62)" strokeWidth="1" />
+        </>
+      )}
+      {(mode === 'forming_void' || mode === 'void_core') && (
+        <circle cx="60" cy="36" r={7 + strength * 5} fill="none" stroke="rgba(255,247,232,0.56)" strokeWidth="1" />
+      )}
+    </svg>
+  )
+}
+
 function SceneDiagram({
   diagram,
   mode,
   strength,
 }: {
-  diagram: 'orbit' | 'dna' | 'singularity'
+  diagram: 'orbit' | 'dna' | 'hypercube' | 'singularity'
   mode: InteractionMode
   strength: number
 }) {
   if (diagram === 'singularity') return <SingularityDiagram mode={mode} strength={strength} />
   if (diagram === 'dna') return <DnaDiagram mode={mode} strength={strength} />
+  if (diagram === 'hypercube') return <HypercubeDiagram mode={mode} strength={strength} />
   return <OrbitDiagram mode={mode} />
 }
 
@@ -258,8 +320,8 @@ export function SceneHud() {
   if (!hud || !copy || phase !== 'active') return null
 
   return (
-    <div style={styles.root} aria-hidden>
-      <div style={{ ...styles.topBadge, ...(compact ? styles.topBadgeCompact : {}), borderColor: `${copy.color}55`, color: copy.color }}>
+    <div style={styles.root} aria-hidden data-testid="scene-hud">
+      <div data-testid="scene-hud-top" style={{ ...styles.topBadge, ...(compact ? styles.topBadgeCompact : {}), borderColor: `${copy.color}55`, color: copy.color }}>
         <span style={styles.topKey}>{hud.controlLabel}</span>
         <span style={styles.topDot}>·</span>
         <span style={styles.topCn}>{copy.cn}</span>
@@ -268,7 +330,7 @@ export function SceneHud() {
         {displayPercent > 2 && <span style={{ ...styles.force, color: copy.color }}>{displayPercent}%</span>}
       </div>
 
-      <div style={{ ...styles.leftPlate, ...(compact ? styles.leftPlateCompact : {}) }}>
+      <div data-testid="scene-hud-left" style={{ ...styles.leftPlate, ...(compact ? styles.leftPlateCompact : {}) }}>
         <div style={styles.plateCorners} />
         {!reducedMotion && <div ref={scanRef} style={styles.scanLine} />}
         <div style={styles.cardIndex}>{hud.index}</div>
@@ -282,7 +344,7 @@ export function SceneHud() {
         <div style={styles.goldMeter}><span style={styles.goldMeterFill} /></div>
       </div>
 
-      <div style={{ ...styles.bottomPlate, ...(compact ? styles.bottomPlateCompact : {}) }}>
+      <div data-testid="scene-hud-bottom" style={{ ...styles.bottomPlate, ...(compact ? styles.bottomPlateCompact : {}) }}>
         {!compact && (
           <div style={styles.bottomCopy}>
             {hud.description.map((line) => <span key={line}>{line}</span>)}
@@ -310,7 +372,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 2, border: '1px solid rgba(155, 223, 255, 0.28)', background: 'rgba(2, 6, 14, 0.76)',
     boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.03)', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
   },
-  topBadgeCompact: { top: 66, left: 12, right: 12, transform: 'none', padding: '5px 8px', gap: 5, whiteSpace: 'normal' },
+  topBadgeCompact: { top: 76, left: 12, right: 12, transform: 'none', padding: '5px 8px', gap: 5, whiteSpace: 'normal' },
   topKey: { opacity: 0.7, fontSize: 10 },
   topDot: { opacity: 0.35 },
   topCn: { fontWeight: 700 },
@@ -321,7 +383,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid rgba(126, 218, 255, 0.22)', background: 'rgba(3, 10, 22, 0.78)',
     boxShadow: '0 18px 46px rgba(0,0,0,0.26), inset 0 0 0 1px rgba(255,255,255,0.025)', overflow: 'hidden',
   },
-  leftPlateCompact: { top: 108, left: 12, width: 208, padding: '10px 12px 12px' },
+  leftPlateCompact: { top: 118, left: 12, width: 208, padding: '10px 12px 12px' },
   cardIndex: { position: 'absolute', top: 7, right: 9, fontSize: 9, color: 'rgba(255, 193, 61, 0.75)' },
   plateCorners: {
     position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.7,

@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-07-13 — 四旗舰场景库与专用四维立方
+
+### Added
+
+- 场景目录新增 `featured` / `lab` 分层和固定旗舰顺序：土星环、双螺旋、四维立方、引力奇点
+- 从运行 HUD 抽出响应式场景库：2×2 旗舰网格、Lab 折叠区、移动端成功切换后收起、加载失败保留原场景
+- 新增 14,400 粒子的专用四维立方系统，包含 16 个节点、32 条四维边和内部维度尘埃
+- 新增四维几何确定性测试、目录测试、Vitest 基线与 Playwright 三视口功能/视觉用例
+
+### Changed
+
+- 四个旗舰 HUD 编号统一为 01–04，新增 `S-03 / DIMENSIONAL LATTICE`
+- 四维立方改为独立动态 chunk，XW/YW 旋转、透视投影、传播、碎裂和重组全部在 shader 中完成
+- 旗舰 HUD 隐藏重复的顶部跟踪提示，移动端 HUD 下移避开常驻控制条
+- 所有场景库与常驻控制按钮提供至少 44px 触控区域、键盘焦点和 ARIA 状态
+
+### Verification
+
+- Vitest：2 个测试文件、6 个用例通过
+- `npx tsc --noEmit -p tsconfig.app.json`
+- `npm run lint`
+- `npm run build`
+- Hypercube 独立 chunk：约 4.35 kB gzip；主入口原始增量约 4.39 kB
+- Playwright 单个桌面功能用例通过；用户浏览器手动验收确认当前四旗舰版本基本可行
+
 ## 2026-07-13 — 专用双螺旋场景与场景分包
 
 ### Added

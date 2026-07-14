@@ -7,6 +7,11 @@ import {
   SINGULARITY_CAMERA,
   SINGULARITY_COUNTS,
 } from '../particles/singularity/singularityTypes'
+import {
+  HYPERCUBE_BLOOM,
+  HYPERCUBE_CAMERA,
+  HYPERCUBE_COUNTS,
+} from '../particles/hypercube/hypercubeTypes'
 import type { ParticleShape } from '../particles/shapes/types'
 import type { InteractionMode } from '../store/appStore'
 
@@ -48,10 +53,15 @@ const singularityRenderer = defineLazyRenderer(
   () => import('../particles/singularity/SingularitySystem'),
   (module) => module.SingularitySystem,
 )
+const hypercubeRenderer = defineLazyRenderer(
+  () => import('../particles/hypercube/HypercubeSystem'),
+  (module) => module.HypercubeSystem,
+)
 
 const SCENE_PRELOADERS: Partial<Record<ParticleShape, () => Promise<void>>> = {
   saturn_ring: saturnRenderer.preload,
   dna_helix: dnaRenderer.preload,
+  hypercube: hypercubeRenderer.preload,
   singularity: singularityRenderer.preload,
 }
 
@@ -107,7 +117,7 @@ export interface SceneHudProfile {
   controlLabel: string
   structureCount: number
   structureLabel: string
-  diagram: 'orbit' | 'dna' | 'singularity'
+  diagram: 'orbit' | 'dna' | 'hypercube' | 'singularity'
   description: readonly string[]
   interactions: Record<InteractionMode, GestureHudProfile>
 }
@@ -173,6 +183,15 @@ const singularityCamera: CameraPose = {
   sway: SINGULARITY_CAMERA.driftX,
   lift: SINGULARITY_CAMERA.driftY,
   depth: SINGULARITY_CAMERA.driftZ,
+}
+
+const hypercubeCamera: CameraPose = {
+  position: HYPERCUBE_CAMERA.position,
+  lookAt: HYPERCUBE_CAMERA.lookAt,
+  fov: HYPERCUBE_CAMERA.fov,
+  sway: HYPERCUBE_CAMERA.driftX,
+  lift: HYPERCUBE_CAMERA.driftY,
+  depth: HYPERCUBE_CAMERA.driftZ,
 }
 
 export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
@@ -270,8 +289,8 @@ export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
       verticalDrift: 0.03,
     },
     hud: {
-      index: '04',
-      code: 'S-04 / GENETIC LATTICE',
+      index: '02',
+      code: 'S-02 / GENETIC LATTICE',
       title: '双螺旋',
       titleEn: 'DOUBLE HELIX',
       particleCount: DNA_COUNTS.total,
@@ -295,9 +314,54 @@ export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
   golden_spiral: particleProfile('golden_spiral', {
     position: [3.1, 2, 12.2], lookAt: [0.2, 0.18, 0], fov: 37, sway: 0.08, lift: 0.04, depth: 0.06,
   }, { bloomBias: -0.18, brightnessBias: -0.02 }),
-  hypercube: particleProfile('hypercube', {
-    position: [4.8, 3.1, 13.4], lookAt: [0, 0.3, 0], fov: 33, sway: 0.06, lift: 0.04, depth: 0.05,
-  }, { bloomBias: -0.26, contrastBias: 0.08, brightnessBias: -0.03, vignetteBias: 0.03 }),
+  hypercube: {
+    id: 'hypercube',
+    Renderer: hypercubeRenderer.Renderer,
+    camera: hypercubeCamera,
+    heroCamera: hypercubeCamera,
+    fogDensity: 0.007,
+    post: {
+      bloom: HYPERCUBE_BLOOM,
+      bloomBias: 0,
+      contrastBias: 0.06,
+      brightnessBias: -0.024,
+      vignetteBias: 0.055,
+    },
+    atmosphere: {
+      focus: 0.82,
+      count: 140,
+      pulseScale: 0.32,
+      energyBase: 0.025,
+      energyScale: 0.045,
+      turbulenceBase: 0.02,
+      turbulenceScale: 0.025,
+      rotationSpeed: 0.0025,
+      rotationTilt: 0.006,
+      verticalDrift: 0.025,
+    },
+    hud: {
+      index: '03',
+      code: 'S-03 / DIMENSIONAL LATTICE',
+      title: '四维立方',
+      titleEn: 'HYPERCUBE',
+      particleCount: HYPERCUBE_COUNTS.total,
+      controlLabel: 'DIMENSION CONTROL',
+      structureCount: HYPERCUBE_COUNTS.edgeCount,
+      structureLabel: '4D EDGES',
+      diagram: 'hypercube',
+      description: ['十六个节点构成四维晶格', '三十二条边投影为嵌套立方', '第四维沿投影轴持续旋转'],
+      interactions: {
+        idle: { cn: '维度巡航', en: '4D DRIFT', color: '#9bdfff' },
+        attract: { cn: '握拳折叠', en: 'DIMENSION FOLD', color: '#ff8a3d' },
+        repel: { cn: '掌心展开', en: 'LATTICE EXPANSION', color: '#9beaff' },
+        point: { cn: '节点锁定', en: 'VERTEX TRACE', color: '#ff9b52' },
+        duality: { cn: '双手投影', en: 'DUAL PROJECTION', color: '#ffd06a' },
+        forming_void: { cn: '核心压缩', en: 'CORE COLLAPSE', color: '#ff8a3d' },
+        void_core: { cn: '超核稳定', en: 'HYPERCORE LOCKED', color: '#f5fbff' },
+        exploding: { cn: '维度重组', en: 'LATTICE REASSEMBLY', color: '#ff6b32' },
+      },
+    },
+  },
   galaxy: particleProfile('galaxy', {
     position: [2.7, 3, 14.6], lookAt: [0, 0.28, 0], fov: 32, sway: 0.08, lift: 0.05, depth: 0.08,
   }, { contrastBias: 0.04, brightnessBias: -0.028, vignetteBias: 0.04 }),
@@ -327,8 +391,8 @@ export const SCENE_PROFILES: Record<ParticleShape, SceneProfile> = {
       verticalDrift: 0.02,
     },
     hud: {
-      index: '08',
-      code: 'S-08 / GRAVITY WELL',
+      index: '04',
+      code: 'S-04 / GRAVITY WELL',
       title: '引力奇点',
       titleEn: 'SINGULARITY',
       particleCount: SINGULARITY_COUNTS.total,

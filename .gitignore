@@ -9,6 +9,8 @@ lerna-debug.log*
 
 node_modules
 dist
+test-results
+playwright-report
 dist-ssr
 *.local
 
@@ -33,4 +35,5 @@ public/wasm/
 .claude/
 .firecrawl/
 .superpowers/
+graphify-out/
 handoff.md

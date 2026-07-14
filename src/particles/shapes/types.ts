@@ -8,9 +8,13 @@ export type ParticleShape =
   | 'galaxy'
   | 'singularity'
 
+export type SceneTier = 'featured' | 'lab'
+
 export interface ShapeOption {
   id: ParticleShape
   label: string
   hint: string
   accent: string
+  tier: SceneTier
+  featuredOrder?: 1 | 2 | 3 | 4
 }
